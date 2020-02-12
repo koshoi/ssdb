@@ -1,0 +1,2 @@
+# ssdb
+Shebang Started DataBase
