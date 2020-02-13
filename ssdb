@@ -1,0 +1,147 @@
+#!/bin/bash
+
+set -eu
+set -o pipefail
+
+SSDB_DEBUG=1
+DEBUG="${SSDB_DEBUG:-}"
+
+SNAPDIR="${SSDB_SNAPDIR:-/tmp/ssdb_snap}"
+
+function print_help() {
+cat <<'EOF'
+
+Welcome to
+
+   __________ ____  ____ 
+  / ___/ ___// __ \/ __ )
+  \__ \\__ \/ / / / __  |
+ ___/ /__/ / /_/ / /_/ /
+/____/____/_____/_____/
+
+
+SSDB stands for Shebang Started DataBase
+The main concept of this 'DataBase' is
+	1) Being serverless
+	2) Being written in bash
+	3) Beign written in as clean bash as possible
+	4) Being written in single bash file
+	5) Having a snapshot that can be easily fixed in vim if needed
+	6) Having some sort of isolation, but not necessary
+
+This is key-value DB that stores data in a file
+It does not have a server, but it has a client (you are reading help for it at the moment)
+
+Client's are kinda following gentelmens agreement on
+'How we, gentelmen, should write to this file called snapshot so it keeps being adequate'
+
+The syntax is simple
+
+ssdb add   KEY VALUE
+ssdb del   KEY
+ssdb get   KEY
+ssdb check KEY
+ssdb list
+ssdb help
+
+As for now KEY can't contain any whitespaces, special characters and binary shit
+Because this is DB for gentlemen, and gentlemen are not going to use that symbols, not to spoil the fun for other gentlemen
+I guess I will check for whitespaces easily, not so easy for binary shit
+
+However VALUE can contain any of that
+EOF
+}
+
+function debug() {
+	if [ -n "$DEBUG" ]; then
+		echo "DEBUG: $*" 1>&2
+	fi
+}
+
+function warn() {
+	echo "WARNING: $*" 1>&2
+}
+
+function error() {
+	echo "ERROR: $*" 1>&2
+	exit 127
+}
+
+function run_add {
+	error "add is not implemented yet"
+}
+
+function run_del {
+	error "del is not implemented yet"
+}
+
+function run_get {
+	error "get is not implemented yet"
+}
+
+function run_check {
+	error "check is not implemented yet"
+}
+
+function run_list {
+	error "list is not implemented yet"
+}
+
+COMMAND=""
+KEY=""
+VALUE=""
+
+GIVEN_COMMAND="${1:-}"
+case "$GIVEN_COMMAND" in
+	a|add)
+		COMMAND="add"
+		KEY="${2:-}"
+
+		if [ -z "$KEY" ]; then
+			error "KEY can't be empty"
+		fi
+
+		if [ -z "${3+x}" ]; then
+			error "VALUE is undefined"
+		else
+			VALUE="$3"
+		fi
+		;;
+	d|del)
+		COMMAND="del";;
+	g|get)
+		COMMAND="get";;
+	c|check)
+		COMMAND="check";;
+	l|list)
+		COMMAND="list";;
+	h|help)
+		COMMAND="help";;
+	'')
+		error "No command given, consider running 'ssdb help'";;
+	*)
+		error "'$GIVEN_COMMAND' command is unknown, consider running 'ssdb help'";;
+esac
+shift
+
+debug "COMMAND=$COMMAND KEY=$KEY VALUE=$VALUE"
+debug "SNAPDIR=$SNAPDIR"
+
+case "$COMMAND" in
+	add)
+		run_add "$KEY" "$VALUE";;
+	del)
+		run_del "$KEY";;
+	get)
+		run_get "$KEY";;
+	check)
+		run_check "$KEY";;
+	list)
+		run_list;;
+	help)
+		print_help;;
+	*)
+		error "'$COMMAND' command is parsed but not implemented yet";;
+esac
+
+debug 'SSDB done'
