@@ -3,10 +3,14 @@
 set -eu
 set -o pipefail
 
-SSDB_DEBUG=1
 DEBUG="${SSDB_DEBUG:-}"
 
 SNAPDIR="${SSDB_SNAPDIR:-/tmp/ssdb_snap}"
+DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
+LOCK_SLEEP_PERIOD=0.1
+LOCK_MAX_ATTEMPT=100
+
+mkdir -p "$SNAPDIR"
 
 function print_help() {
 cat <<'EOF'
@@ -49,12 +53,19 @@ Because this is DB for gentlemen, and gentlemen are not going to use that symbol
 I guess I will check for whitespaces easily, not so easy for binary shit
 
 However VALUE can contain any of that
+
+Roadmaps are
+	1) Subscribe on any changes to the key
+	2) Subscribe on any changes to the key that matches the wildcard 
+	3) Replication)))
+	4) More data structures (like sets, lists and maybe something else)
+	5) More than single database
 EOF
 }
 
 function debug() {
 	if [ -n "$DEBUG" ]; then
-		echo "DEBUG: $*" 1>&2
+		echo "DEBUG: $DEBUG_INFO  $*" 1>&2
 	fi
 }
 
@@ -65,6 +76,32 @@ function warn() {
 function error() {
 	echo "ERROR: $*" 1>&2
 	exit 127
+}
+
+function lock() {
+	lock_type="${1+GLOBAL}"
+	lockdir="${SNAPDIR}/lock.$lock_type"
+	debug "Taking $lock_type lock"
+	lock_attempt=1
+
+	until mkdir "$lockdir" 2>/dev/null; do
+		debug "Attempt to take lock #$lock_attempt"
+		lock_attempt=$(( lock_attempt + 1 ))
+		sleep $LOCK_SLEEP_PERIOD
+		if [ "$lock_attempt" -gt "$LOCK_MAX_ATTEMPT" ]; then
+			debug "Failed to take $lock_type lock in $LOCK_MAX_ATTEMPT attempts"
+			error "Failed to take $lock_type lock"
+		fi
+	done
+
+	debug "Lock taken, attempt=$lock_attempt"
+}
+
+function unlock() {
+	lock_type="${1+GLOBAL}"
+	lockdir="${SNAPDIR}/lock.$lock_type"
+	rmdir "$lockdir"
+	debug "$lock_type lock removed"
 }
 
 function run_add {
@@ -144,4 +181,6 @@ case "$COMMAND" in
 		error "'$COMMAND' command is parsed but not implemented yet";;
 esac
 
+lock GLOBAL
+unlock GLOBAL
 debug 'SSDB done'
