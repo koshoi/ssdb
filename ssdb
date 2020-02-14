@@ -6,11 +6,46 @@ set -o pipefail
 DEBUG="${SSDB_DEBUG:-}"
 
 SNAPDIR="${SSDB_SNAPDIR:-/tmp/ssdb_snap}"
+DBNAME="${SSDB_DATABASE:-default}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
 
+TAKEN_LOCKS=()
+
+DEPENDENCIES=(base64)
+
 mkdir -p "$SNAPDIR"
+
+function debug() {
+	if [ -n "$DEBUG" ]; then
+		echo "DEBUG: $DEBUG_INFO  $*" 1>&2
+	fi
+}
+
+function warn() {
+	echo "WARNING: $*" 1>&2
+}
+
+function error() {
+	echo "ERROR: $*" 1>&2
+
+	# Disgusting hack for empty arrays on bash < 4.4
+	if [ 0 -ne "${#TAKEN_LOCKS[@]}" ]; then
+		for l in "${TAKEN_LOCKS[@]}"; do
+			unlock "$l"
+		done
+	fi
+
+	exit 127
+}
+
+for dep in "${DEPENDENCIES[@]}"; do
+	if ! type "$dep" 1>/dev/null 2>/dev/null; then
+		error "Unmet dependency: $dep"
+	fi
+done
+
 
 function print_help() {
 cat <<'EOF'
@@ -63,25 +98,21 @@ Roadmaps are
 EOF
 }
 
-function debug() {
-	if [ -n "$DEBUG" ]; then
-		echo "DEBUG: $DEBUG_INFO  $*" 1>&2
-	fi
+function lock_name() {
+	echo "${SNAPDIR}/lock.${DBNAME}.${1:-GLOBAL}"
 }
 
-function warn() {
-	echo "WARNING: $*" 1>&2
-}
-
-function error() {
-	echo "ERROR: $*" 1>&2
-	exit 127
+function snap_name() {
+	echo "${SNAPDIR}/snap.${DBNAME}"
 }
 
 function lock() {
-	lock_type="${1+GLOBAL}"
-	lockdir="${SNAPDIR}/lock.$lock_type"
-	debug "Taking $lock_type lock"
+	lock_type="${1:-GLOBAL}"
+	lockdir=$(lock_name "$lock_type")
+	TAKEN_LOCKS+=( "$lock_type" )
+
+	debug "Locktype=$lock_type Lockdir=$lockdir"
+
 	lock_attempt=1
 
 	until mkdir "$lockdir" 2>/dev/null; do
@@ -99,29 +130,180 @@ function lock() {
 
 function unlock() {
 	lock_type="${1+GLOBAL}"
-	lockdir="${SNAPDIR}/lock.$lock_type"
+	lockdir=$(lock_name "$lock_type")
 	rmdir "$lockdir"
 	debug "$lock_type lock removed"
 }
 
+function _add_key() {
+	key="$1"
+	value="$2"
+	snap=$(snap_name)
+	line_count=0
+	found=
+
+	while read -r -a line; do
+		line_count=$(( line_count + 1 ))
+		debug "[delete] scanning for '$key', [0]='${line[0]}' [1]='${line[1]}'"
+		if [ "${line[0]}" == "$key" ]; then
+			debug "Found line_count=$line_count"
+			found=1
+			break
+		fi
+	done < "$snap"
+
+	if [ ! -z "$found" ]; then
+		debug sed -i "$snap" -e "${line_count}s/.*/$key $value/"
+		sed -i "$snap" -e "${line_count}s/.*/$key $value/"
+		printf '%s' "$value"
+		return 0
+	else
+		printf '%s %s\n' "$key" "$value" >> "$snap"
+		printf '%s' "$value"
+	fi
+}
+
 function run_add {
-	error "add is not implemented yet"
+	lock GLOBAL
+	value="$(printf '%s' "$2" | base64 -w 0)"
+	debug "run_add $1 $value"
+
+	if result="$(_add_key "$1" "$value")"; then
+		debug "added"
+	else
+		EXIT=$?
+		debug "Something bad happend, $result"
+		unlock GLOBAL
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+	printf '%s' "$2"
+	return 0
 }
 
-function run_del {
-	error "del is not implemented yet"
+# returns b64-encoded value
+function _delete_key() {
+	key="$1"
+	snap=$(snap_name)
+	value=""
+	line_count=0
+
+	while read -r -a line; do
+		line_count=$(( line_count + 1 ))
+		debug "[delete] scanning for '$key', [0]='${line[0]}' [1]='${line[1]}'"
+		if [ "${line[0]}" == "$key" ]; then
+			debug "Found line_count=$line_count"
+			value="${line[1]}"
+			break
+		fi
+	done < "$snap"
+
+	if [ ! -z "$value" ]; then
+		debug sed -i "$snap" -e "${line_count}d"
+		sed -i "$snap" -e "${line_count}d"
+		printf '%s' "$value"
+		return 0
+	else
+		return 1
+	fi
 }
 
-function run_get {
-	error "get is not implemented yet"
+function run_del() {
+	lock GLOBAL
+
+	debug "run_del $1"
+	if result="$(_delete_key "$1")"; then
+		debug "Found"
+	else
+		EXIT=$?
+		debug "Not found"
+		unlock GLOBAL
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+
+	printf '%s' "$result" | base64 -d
+	return 0
 }
 
-function run_check {
-	error "check is not implemented yet"
+# returns b64-encoded value
+function _get_by_key() {
+	key="$1"
+	no_value="${2-}"
+	snap=$(snap_name)
+	while read -r -a line; do
+		debug "[get] scanning for '$key' no_value=$no_value, [0]='${line[0]}' [1]='${line[1]}'"
+		if [ "${line[0]}" == "$key" ]; then
+			debug "FOUND ${line[1]}"
+			if [ -z "$no_value" ]; then
+				printf '%s' "${line[1]}"
+			fi
+			return 0
+		fi
+	done < "$snap"
+	return 1
+}
+
+function run_get() {
+	lock GLOBAL
+
+	debug "run_get $1"
+	if result="$(_get_by_key "$1")"; then
+		debug "Found"
+	else
+		EXIT=$?
+		debug "Not Found"
+		unlock GLOBAL
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+
+	# decoding comes because of issues with newlines in values
+	printf '%s' "$result" | base64 -d
+}
+
+function run_check() {
+	lock GLOBAL
+
+	debug "run_check $1"
+	if _get_by_key "$1" 1; then
+		unlock GLOBAL
+		debug "Key present"
+		return 0
+	else
+		EXIT=$?
+		unlock GLOBAL
+		debug "Key absent"
+		return $EXIT
+	fi
+}
+
+function _list_keys() {
+	snap=$(snap_name)
+
+	keylist="$(sed 's/ .*//' "$snap")"
+	printf '%s' "$keylist"
+	return 0
 }
 
 function run_list {
-	error "list is not implemented yet"
+	lock GLOBAL
+
+	debug "run_list"
+	if result="$(_list_keys)"; then
+		unlock GLOBAL
+		debug "got keys"
+		printf '%s\n' "$result"
+		return 0
+	else
+		EXIT=$?
+		unlock GLOBAL
+		debug "failed to list keys"
+		return $EXIT
+	fi
 }
 
 COMMAND=""
@@ -129,27 +311,30 @@ KEY=""
 VALUE=""
 
 GIVEN_COMMAND="${1:-}"
-case "$GIVEN_COMMAND" in
-	a|add)
-		COMMAND="add"
-		KEY="${2:-}"
 
+case "$GIVEN_COMMAND" in
+	a|add|d|del|g|get|c|check)
+		KEY="${2:-}"
 		if [ -z "$KEY" ]; then
 			error "KEY can't be empty"
 		fi
+		case "$GIVEN_COMMAND" in
+			a|add)
+				COMMAND="add"
 
-		if [ -z "${3+x}" ]; then
-			error "VALUE is undefined"
-		else
-			VALUE="$3"
-		fi
-		;;
-	d|del)
-		COMMAND="del";;
-	g|get)
-		COMMAND="get";;
-	c|check)
-		COMMAND="check";;
+				if [ -z "${3+x}" ]; then
+					error "VALUE is undefined"
+				else
+					VALUE="$3"
+				fi
+				;;
+			d|del)
+				COMMAND="del";;
+			g|get)
+				COMMAND="get";;
+			c|check)
+				COMMAND="check";;
+		esac;;
 	l|list)
 		COMMAND="list";;
 	h|help)
@@ -181,6 +366,4 @@ case "$COMMAND" in
 		error "'$COMMAND' command is parsed but not implemented yet";;
 esac
 
-lock GLOBAL
-unlock GLOBAL
 debug 'SSDB done'
