@@ -13,21 +13,20 @@ LOCK_MAX_ATTEMPT=100
 
 TAKEN_LOCKS=()
 
-DEPENDENCIES=(base64)
-
+DEPENDENCIES=(base64 cat cat sed printf mkdir sleep echo)
 mkdir -p "$SNAPDIR"
 
-function debug() {
+function debug {
 	if [ -n "$DEBUG" ]; then
 		echo "DEBUG: $DEBUG_INFO  $*" 1>&2
 	fi
 }
 
-function warn() {
+function warn {
 	echo "WARNING: $*" 1>&2
 }
 
-function error() {
+function error {
 	echo "ERROR: $*" 1>&2
 
 	# Disgusting hack for empty arrays on bash < 4.4
@@ -47,7 +46,7 @@ for dep in "${DEPENDENCIES[@]}"; do
 done
 
 
-function print_help() {
+function print_help {
 cat <<'EOF'
 
 Welcome to
@@ -98,15 +97,17 @@ Roadmaps are
 EOF
 }
 
-function lock_name() {
+function lock_name {
 	echo "${SNAPDIR}/lock.${DBNAME}.${1:-GLOBAL}"
 }
 
-function snap_name() {
-	echo "${SNAPDIR}/snap.${DBNAME}"
+function snap_name {
+	snap="${SNAPDIR}/snap.${DBNAME}"
+	touch "$snap"
+	echo "$snap"
 }
 
-function lock() {
+function lock {
 	lock_type="${1:-GLOBAL}"
 	lockdir=$(lock_name "$lock_type")
 	TAKEN_LOCKS+=( "$lock_type" )
@@ -128,14 +129,14 @@ function lock() {
 	debug "Lock taken, attempt=$lock_attempt"
 }
 
-function unlock() {
+function unlock {
 	lock_type="${1+GLOBAL}"
 	lockdir=$(lock_name "$lock_type")
 	rmdir "$lockdir"
 	debug "$lock_type lock removed"
 }
 
-function _add_key() {
+function _add_key {
 	key="$1"
 	value="$2"
 	snap=$(snap_name)
@@ -183,7 +184,7 @@ function run_add {
 }
 
 # returns b64-encoded value
-function _delete_key() {
+function _delete_key {
 	key="$1"
 	snap=$(snap_name)
 	value=""
@@ -209,7 +210,7 @@ function _delete_key() {
 	fi
 }
 
-function run_del() {
+function run_del {
 	lock GLOBAL
 
 	debug "run_del $1"
@@ -229,7 +230,7 @@ function run_del() {
 }
 
 # returns b64-encoded value
-function _get_by_key() {
+function _get_by_key {
 	key="$1"
 	no_value="${2-}"
 	snap=$(snap_name)
@@ -246,7 +247,7 @@ function _get_by_key() {
 	return 1
 }
 
-function run_get() {
+function run_get {
 	lock GLOBAL
 
 	debug "run_get $1"
@@ -265,7 +266,7 @@ function run_get() {
 	printf '%s' "$result" | base64 -d
 }
 
-function run_check() {
+function run_check {
 	lock GLOBAL
 
 	debug "run_check $1"
@@ -281,7 +282,7 @@ function run_check() {
 	fi
 }
 
-function _list_keys() {
+function _list_keys {
 	snap=$(snap_name)
 
 	keylist="$(sed 's/ .*//' "$snap")"
