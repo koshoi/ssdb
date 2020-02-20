@@ -136,32 +136,59 @@ function unlock {
 	debug "$lock_type lock removed"
 }
 
-function _add_key {
+function _set_key {
 	key="$1"
 	value="$2"
+	noreplace="${3:-}"
 	snap=$(snap_name)
 	line_count=0
 	found=
 
 	while read -r -a line; do
 		line_count=$(( line_count + 1 ))
-		debug "[delete] scanning for '$key', [0]='${line[0]}' [1]='${line[1]}'"
+		debug "[set] scanning for '$key', [0]='${line[0]}' [1]='${line[1]}'"
 		if [ "${line[0]}" == "$key" ]; then
-			debug "Found line_count=$line_count"
+			debug "Found line_count=$line_count, noreplace=$noreplace"
 			found=1
 			break
 		fi
 	done < "$snap"
 
 	if [ ! -z "$found" ]; then
-		debug sed -i "$snap" -e "${line_count}s/.*/$key $value/"
-		sed -i "$snap" -e "${line_count}s/.*/$key $value/"
-		printf '%s' "$value"
-		return 0
+		if [ ! -z "$noreplace" ]; then
+			debug "noreplace is set, can't update key value"
+			printf "KEY_ALREADY_SET"
+			return 1
+		else
+			debug sed -i "$snap" -e "${line_count}s/.*/$key $value/"
+			sed -i "$snap" -e "${line_count}s/.*/$key $value/"
+			printf '%s' "$value"
+			return 0
+		fi
 	else
 		printf '%s %s\n' "$key" "$value" >> "$snap"
 		printf '%s' "$value"
 	fi
+}
+
+function run_set {
+	lock GLOBAL
+	value="$(printf '%s' "$2" | base64 -w 0)"
+	debug "run_set $1 $value"
+
+	if result="$(_set_key "$1" "$value")"; then
+		debug "added"
+	else
+		EXIT=$?
+		debug "failed to set key, $result"
+		unlock GLOBAL
+		printf "%s" "$result"
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+	printf '%s' "$2"
+	return 0
 }
 
 function run_add {
@@ -169,12 +196,13 @@ function run_add {
 	value="$(printf '%s' "$2" | base64 -w 0)"
 	debug "run_add $1 $value"
 
-	if result="$(_add_key "$1" "$value")"; then
+	if result="$(_set_key "$1" "$value" noreplace)"; then
 		debug "added"
 	else
 		EXIT=$?
-		debug "Something bad happend, $result"
+		debug "failed to add new key, $result"
 		unlock GLOBAL
+		printf "%s" "$result"
 		return $EXIT
 	fi
 
@@ -314,14 +342,19 @@ VALUE=""
 GIVEN_COMMAND="${1:-}"
 
 case "$GIVEN_COMMAND" in
-	a|add|d|del|g|get|c|check)
+	a|add|d|del|g|get|c|check|s|set)
 		KEY="${2:-}"
 		if [ -z "$KEY" ]; then
 			error "KEY can't be empty"
 		fi
 		case "$GIVEN_COMMAND" in
-			a|add)
-				COMMAND="add"
+			a|add|s|set)
+				case "$GIVEN_COMMAND" in
+					a|add)
+						COMMAND="add";;
+					s|set)
+						COMMAND="set";;
+				esac
 
 				if [ -z "${3+x}" ]; then
 					error "VALUE is undefined"
@@ -353,6 +386,8 @@ debug "SNAPDIR=$SNAPDIR"
 case "$COMMAND" in
 	add)
 		run_add "$KEY" "$VALUE";;
+	set)
+		run_set "$KEY" "$VALUE";;
 	del)
 		run_del "$KEY";;
 	get)
