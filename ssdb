@@ -11,23 +11,40 @@ DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
 
+CR="10"
+BUFSIZE=10
+
 TAKEN_LOCKS=()
 
-DEPENDENCIES=(base64 cat cat sed printf mkdir sleep echo)
+DEPENDENCIES=(base64 cat cat sed printf mkdir sleep echo hexdump)
 mkdir -p "$SNAPDIR"
+
+function _log_prefix {
+	local level="$1"
+	local _caller
+	_caller="$(caller 2)"
+	_caller=($_caller)
+	echo -e "$(date '+%Y-%m-%dT%H:%M:%S')\t[$level:${_caller[0]}:${_caller[1]}]\t"
+}
+
+function _log {
+	local level="$1"
+	local msg="$2"
+	echo "$(_log_prefix "$level")${msg}" 1>&2
+}
 
 function debug {
 	if [ -n "$DEBUG" ]; then
-		echo "DEBUG: $DEBUG_INFO  $*" 1>&2
+		_log 'debug' "$DEBUG_INFO  $*"
 	fi
 }
 
 function warn {
-	echo "WARNING: $*" 1>&2
+	_log 'warning' "$*"
 }
 
 function error {
-	echo "ERROR: $*" 1>&2
+	_log 'error' "$*"
 
 	# Disgusting hack for empty arrays on bash < 4.4
 	if [ 0 -ne "${#TAKEN_LOCKS[@]}" ]; then
@@ -44,6 +61,247 @@ for dep in "${DEPENDENCIES[@]}"; do
 		error "Unmet dependency: $dep"
 	fi
 done
+
+function max {
+	if [ "$1" -gt "$2" ]; then
+		echo "$1"
+	else
+		echo "$2"
+	fi
+}
+
+function min {
+	if [ "$1" -lt "$2" ]; then
+		echo "$1"
+	else
+		echo "$2"
+	fi
+}
+
+function half {
+	local from
+	local to
+	local len
+	from=$(max "$1" "$2")
+	to=$(min "$1" "$2")
+	len=$(( to - from ))
+	echo $(( from + len / 2 ))
+}
+
+function fsize {
+	local f="$1"
+	local size
+	size=$(wc -c "$f")
+	size=($size)
+	echo "${size[0]}"
+}
+
+function get_bytes {
+	local file="$1"
+	local from="$2"
+	local to="$3"
+
+	local len
+	len=$(( to - from ))
+
+	#debug "$(hexdump -ve '1/1 "(%_ad:%02d:"' -e '1/1 "%_c) "' -s "$from" -n "$len" "$file")"
+
+	# https://brendanzagaeski.appspot.com/0006.html
+	#
+	#  no default trash
+	#        |
+	#        v
+	hexdump -ve '1/1 "%02d "' -s "$from" -n "$len" "$file"
+	#            ^
+	#            |
+	#    1 byte by 1 byte
+}
+
+function get_line {
+	local file="$1"
+	local from="$2"
+
+	if [ "$from" -eq 0 ]; then
+		head -n 1 "$file"
+	else
+		tail -c "$(( $(fsize "$file") - from - 1 ))" "$file" | head -n 1
+	fi
+}
+
+function seek4 {
+	local file="$1"
+	local pos="$2"
+	local byte="$3"
+	local direction="${4:-1}"
+
+	debug "seek4: file=$file from=$pos byte=$byte direction=$direction"
+	local size
+	size=$(fsize "$file")
+	local nextpos="$pos"
+
+	local found=''
+	until [ ! -z "$found" ]; do
+		if [ "$direction" -lt 0 ]; then
+			pos=$(( pos - BUFSIZE ))
+			pos=$(max 0 "$pos")
+		else
+			nextpos=$(( pos + BUFSIZE ))
+			nextpos=$(min "$nextpos" "$size")
+		fi
+
+		if [ "$pos" -ge "$size" -o "$pos" -le 0 ]; then
+			debug "seek4: file=$file size=$size pos=$pos d=$direction quiting"
+			echo -1
+			return 0
+		fi
+
+		local bytes
+		bytes=($(get_bytes "$file" "$pos" "$nextpos"))
+
+		local cnt=0
+		local seek=0
+		local len="${#bytes[@]}"
+		[ "$direction" -lt 0 ] && seek=$(( len - 1 ))
+
+		until [ "$cnt" -eq "$len" ]; do
+			cnt=$(( cnt + 1 ))
+			local b="${bytes[$seek]}"
+			if [ "$b" == "$byte" ]; then
+				found=$(( pos + seek ))
+				break
+			fi
+			seek=$(( seek + direction ))
+		done
+
+		if [ "$direction" -lt 0 ]; then
+			nextpos="$pos"
+		else
+			pos="$nextpos"
+		fi
+	done
+
+	echo "$found"
+	return 0
+}
+
+function line2key {
+	l="$1"
+	local larr=($l)
+	echo "${larr[0]}"
+}
+
+function line2value {
+	l="$1"
+	local larr=($l)
+	echo "${larr[1]}"
+}
+
+# returns A, B
+# A is one of KEYFOUND, APPEND
+# B is position where the key should be
+function find_position_for_key {
+	local file="$1"
+	local key="$2"
+
+	local startpos=0
+	local endpos
+	endpos=$(( $(fsize "$file") - 1 ))
+
+	if [ "$endpos" -eq 0 ]; then
+		echo "APPEND 0"
+		return 0
+	fi
+
+	local firstkey
+	firstkey=$(line2key "$(head -n 1 "$file")")
+	if [[ "$key" < "$firstkey" ]]; then
+		echo "APPEND 0"
+		return 0
+	fi
+
+	if [ "$key" == "$firstkey" ]; then
+		echo "KEYFOUND 0"
+		return 0
+	fi
+
+	local lastkey
+	lastkey=$(line2key "$(tail -n 1 "$file")")
+	if [[ "$key" > "$lastkey" ]]; then
+		echo "APPEND $endpos"
+		return 0
+	fi
+
+	if [ "$key" == "$lastkey" ]; then
+		debug "LASTKEY"
+		echo "KEYFOUND $(seek4 "$file" "$endpos" "$CR" -1)"
+		return 0
+	fi
+
+	local loopcnt=0
+	local maxloop=6
+
+	while [ "$startpos" -ne "$endpos" ]; do
+		loopcnt=$(( loopcnt + 1 ))
+		local pfx="lc=$loopcnt sp=$startpos ep=$endpos"
+		debug "$pfx"
+		if [ "$loopcnt" -gt "$maxloop" ]; then
+			error "to many loops"
+		fi
+
+		pos=$(half "$startpos" "$endpos")
+		#debug "$pfx pos=$pos"
+		debug "$pfx"
+
+		local foundr
+		local foundl
+		foundr=$(seek4 "$file" "$pos" "$CR"  1)
+		foundl=$(seek4 "$file" "$pos" "$CR" -1)
+
+		debug "fl=$foundl fr=$foundr"
+
+		local linel
+		local liner
+		linel=$(get_line "$file" "$foundl")
+		liner=$(get_line "$file" "$foundr")
+		debug "$pfx ll=$linel"
+		debug "$pfx lr=$liner"
+
+		local rkey
+		local lkey
+		rkey=$(line2key "$liner")
+		lkey=$(line2key "$linel")
+
+		if [ "$lkey" == "$key" ]; then
+			_warn "LEFTFOUND AT POSITION=$foundl, line=$linel"
+			echo "KEYFOUND $foundl"
+			return 0
+		fi
+
+		if [ "$rkey" == "$key" ]; then
+			_warn "RIGHTFTFOUND AT POSITION=$foundr, line=$liner"
+			echo "KEYFOUND $foundr"
+			return 0
+		fi
+
+		if [[ "$key" > "$rkey" ]]; then
+			debug "[lr] $pfx [$lkey $key $rkey] setting sp=$foundr"
+			startpos="$foundr"
+		else
+			if [[ "$key" < "$lkey" ]]; then
+				debug "[ll] $pfx [$lkey $key $rkey] setting ep=$foundl"
+				endpos="$foundl"
+			else
+				debug "BETWEEN [$lkey $key $rkey]"
+				echo "APPEND $foundr"
+				exit 0
+			fi
+		fi
+	done
+
+	# this should not happen
+	debug "sp=$startpos ep=$endpos"
+	exit 1
+}
 
 
 function print_help {
@@ -102,19 +360,20 @@ function lock_name {
 }
 
 function snap_name {
-	snap="${SNAPDIR}/snap.${DBNAME}"
+	local snap="${SNAPDIR}/snap.${DBNAME}"
 	touch "$snap"
 	echo "$snap"
 }
 
 function lock {
-	lock_type="${1:-GLOBAL}"
+	local lock_type="${1:-GLOBAL}"
+	local lockdir
 	lockdir=$(lock_name "$lock_type")
 	TAKEN_LOCKS+=( "$lock_type" )
 
 	debug "Locktype=$lock_type Lockdir=$lockdir"
 
-	lock_attempt=1
+	local lock_attempt=1
 
 	until mkdir "$lockdir" 2>/dev/null; do
 		debug "Attempt to take lock #$lock_attempt"
@@ -130,19 +389,21 @@ function lock {
 }
 
 function unlock {
-	lock_type="${1+GLOBAL}"
+	local lock_type="${1+GLOBAL}"
+	local lockdir
 	lockdir=$(lock_name "$lock_type")
 	rmdir "$lockdir"
 	debug "$lock_type lock removed"
 }
 
 function _set_key {
-	key="$1"
-	value="$2"
-	noreplace="${3:-}"
+	local key="$1"
+	local value="$2"
+	local noreplace="${3:-}"
+	local snap
 	snap=$(snap_name)
-	line_count=0
-	found=
+	local line_count=0
+	local found=
 
 	while read -r -a line; do
 		line_count=$(( line_count + 1 ))
@@ -173,13 +434,15 @@ function _set_key {
 
 function run_set {
 	lock GLOBAL
+	local value
 	value="$(printf '%s' "$2" | base64 -w 0)"
 	debug "run_set $1 $value"
 
+	local result
 	if result="$(_set_key "$1" "$value")"; then
 		debug "added"
 	else
-		EXIT=$?
+		local EXIT=$?
 		debug "failed to set key, $result"
 		unlock GLOBAL
 		printf "%s" "$result"
@@ -193,9 +456,11 @@ function run_set {
 
 function run_add {
 	lock GLOBAL
+	local value
 	value="$(printf '%s' "$2" | base64 -w 0)"
 	debug "run_add $1 $value"
 
+	local result
 	if result="$(_set_key "$1" "$value" noreplace)"; then
 		debug "added"
 	else
@@ -213,10 +478,11 @@ function run_add {
 
 # returns b64-encoded value
 function _delete_key {
-	key="$1"
+	local key="$1"
+	local snap
 	snap=$(snap_name)
-	value=""
-	line_count=0
+	local value=""
+	local line_count=0
 
 	while read -r -a line; do
 		line_count=$(( line_count + 1 ))
@@ -242,10 +508,11 @@ function run_del {
 	lock GLOBAL
 
 	debug "run_del $1"
+	local result
 	if result="$(_delete_key "$1")"; then
 		debug "Found"
 	else
-		EXIT=$?
+		local EXIT=$?
 		debug "Not found"
 		unlock GLOBAL
 		return $EXIT
@@ -259,9 +526,24 @@ function run_del {
 
 # returns b64-encoded value
 function _get_by_key {
-	key="$1"
-	no_value="${2-}"
+	local key="$1"
+	local no_value="${2-}"
+
+	local snap
 	snap=$(snap_name)
+	# local findres
+	# if findres=$(find_position_for_key "$snap" "$key"); then
+	# 	debug "findres=$findres"
+	# 	findres=($findres)
+	# 	if [ "${findres[0]}" == "KEYFOUND" ]; then
+	# 		line=$(get_line "$snap" "${findres[1]}")
+	# 		debug "line=$line"
+	# 		if [ -z "$no_value" ]; then
+	# 			line2value "$line"
+	# 		fi
+	# 		return 0
+	# 	fi
+	# fi
 	while read -r -a line; do
 		debug "[get] scanning for '$key' no_value=$no_value, [0]='${line[0]}' [1]='${line[1]}'"
 		if [ "${line[0]}" == "$key" ]; then
@@ -279,10 +561,11 @@ function run_get {
 	lock GLOBAL
 
 	debug "run_get $1"
+	local result
 	if result="$(_get_by_key "$1")"; then
 		debug "Found"
 	else
-		EXIT=$?
+		local EXIT=$?
 		debug "Not Found"
 		unlock GLOBAL
 		return $EXIT
@@ -303,7 +586,7 @@ function run_check {
 		debug "Key present"
 		return 0
 	else
-		EXIT=$?
+		local EXIT=$?
 		unlock GLOBAL
 		debug "Key absent"
 		return $EXIT
@@ -311,11 +594,10 @@ function run_check {
 }
 
 function _list_keys {
+	local snap
 	snap=$(snap_name)
 
-	keylist="$(sed 's/ .*//' "$snap")"
-	printf '%s' "$keylist"
-	return 0
+	sed 's/ .*//' "$snap"
 }
 
 function run_list {
@@ -328,7 +610,7 @@ function run_list {
 		printf '%s\n' "$result"
 		return 0
 	else
-		EXIT=$?
+		local EXIT=$?
 		unlock GLOBAL
 		debug "failed to list keys"
 		return $EXIT
@@ -401,5 +683,3 @@ case "$COMMAND" in
 	*)
 		error "'$COMMAND' command is parsed but not implemented yet";;
 esac
-
-debug 'SSDB done'
