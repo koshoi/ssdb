@@ -404,8 +404,6 @@ function _set_key {
 	local noreplace="${3:-}"
 	local snap
 	snap=$(snap_name)
-	local line_count=0
-	local found=
 
 	local findres
 	local snapinprogress="$snap.ip"
@@ -444,32 +442,6 @@ function _set_key {
 	fi
 
 	mv -f "$snapinprogress" "$snap"
-
-	# while read -r -a line; do
-	# 	line_count=$(( line_count + 1 ))
-	# 	debug "[set] scanning for '$key', [0]='${line[$KEY_POSITION]}' [1]='${line[1]}'"
-	# 	if [ "${line[$KEY_POSITION]}" == "$key" ]; then
-	# 		debug "Found line_count=$line_count, noreplace=$noreplace"
-	# 		found=1
-	# 		break
-	# 	fi
-	# done < "$snap"
-
-	# if [ ! -z "$found" ]; then
-	# 	if [ ! -z "$noreplace" ]; then
-	# 		debug "noreplace is set, can't update key value"
-	# 		printf "KEY_ALREADY_SET"
-	# 		return 1
-	# 	else
-	# 		debug sed -i "$snap" -e "${line_count}s/.*/$key $value/"
-	# 		sed -i "$snap" -e "${line_count}s/.*/$key $value/"
-	# 		printf '%s' "$value"
-	# 		return 0
-	# 	fi
-	# else
-	# 	printf '%s %s\n' "$key" "$value" >> "$snap"
-	# 	printf '%s' "$value"
-	# fi
 }
 
 function run_set {
@@ -519,29 +491,37 @@ function run_add {
 # returns b64-encoded value
 function _delete_key {
 	local key="$1"
+	local value
 	local snap
 	snap=$(snap_name)
-	local value=""
-	local line_count=0
 
-	while read -r -a line; do
-		line_count=$(( line_count + 1 ))
-		debug "[delete] scanning for '$key', [0]='${line[$KEY_POSITION]}' [1]='${line[$VALUE_POSITION]}'"
-		if [ "${line[$KEY_POSITION]}" == "$key" ]; then
-			debug "Found line_count=$line_count"
-			value="${line[$VALUE_POSITION]}"
-			break
+	local findres
+	local snapinprogress="$snap.ip"
+
+	if findres=$(find_position_for_key "$snap" "$key"); then
+		findres=($findres)
+		local postype="${findres[0]}"
+		local pos="${findres[1]}"
+		if [ "$postype" == "APPEND" ]; then
+			return 1
+		else
+			debug "found key=$key at position=$pos"
+			local line
+			line=$(get_line "$snap" "$pos")
+			value=$(line2value "$line")
+			local nextcr
+			nextcr=$(seek4 "$snap" "$(( pos + 1 ))" "$CR")
+			debug "nextcr=$nextcr"
+			head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
+			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
 		fi
-	done < "$snap"
-
-	if [ ! -z "$value" ]; then
-		debug sed -i "$snap" -e "${line_count}d"
-		sed -i "$snap" -e "${line_count}d"
-		printf '%s' "$value"
-		return 0
+		debug "SET FR0=${findres[0]} FR1=${findres[1]}"
 	else
-		return 1
+		error "failed to find position for key=$key"
 	fi
+
+	mv -f "$snapinprogress" "$snap"
+	printf '%s' "$value"
 }
 
 function run_del {
@@ -584,16 +564,6 @@ function _get_by_key {
 			return 0
 		fi
 	fi
-	# while read -r -a line; do
-	# 	debug "[get] scanning for '$key' no_value=$no_value, [0]='${line[0]}' [1]='${line[1]}'"
-	# 	if [ "${line[0]}" == "$key" ]; then
-	# 		debug "FOUND ${line[1]}"
-	# 		if [ -z "$no_value" ]; then
-	# 			printf '%s' "${line[1]}"
-	# 		fi
-	# 		return 0
-	# 	fi
-	# done < "$snap"
 	return 1
 }
 
@@ -664,7 +634,7 @@ VALUE=""
 GIVEN_COMMAND="${1:-}"
 
 case "$GIVEN_COMMAND" in
-	a|add|d|del|g|get|c|check|s|set)
+	a|add|d|del|delete|g|get|c|check|s|set)
 		KEY="${2:-}"
 		if [ -z "$KEY" ]; then
 			error "KEY can't be empty"
@@ -684,7 +654,7 @@ case "$GIVEN_COMMAND" in
 					VALUE="$3"
 				fi
 				;;
-			d|del)
+			d|del|delete)
 				COMMAND="del";;
 			g|get)
 				COMMAND="get";;
