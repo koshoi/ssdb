@@ -1,0 +1,78 @@
+#!/bin/bash
+
+set -euo pipefail
+
+export SSDB_DEBUG=
+export SSDB_SNAPDIR="$1"
+ssdb="$2"
+
+function _log_prefix {
+	local level="$1"
+	local _caller
+	_caller="$(caller 2)"
+	_caller=($_caller)
+	echo -e "$(date '+%Y-%m-%dT%H:%M:%S')\t[$level:${_caller[0]}:${_caller[1]}]\t"
+}
+
+function _log {
+	local level="$1"
+	local msg="$2"
+	echo "$(_log_prefix "$level")${msg}" 1>&2
+}
+
+function error {
+	_log 'error' "$1"
+	exit 1
+}
+
+function testres {
+	local tname="$1"
+	local expected_output="$2"
+	shift
+	shift
+	local result
+	if result=$("$@"); then
+		if [ "$result" == "$expected_output" ]; then
+			printf 'Ok: %s\n' "$tname"
+		else
+			printf 'Failed: %s\n' "$tname"
+			printf '\tGot: %s\n' "$result"
+			printf '\tExpected: %s\n' "$expected_output"
+		fi
+	else
+		printf 'Failed: %s\n' "$tname"
+		printf '\tGot failure: %s\n' "$result"
+		printf '\tExpected: %s\n' "$expected_output"
+	fi
+}
+
+function testok {
+	local tname="$1"
+	shift
+	local result
+	if result=$("$@"); then
+		printf 'Ok: %s\n' "$tname"
+	else
+		printf 'Failed: %s\n' "$tname"
+		printf '\tGot failure: %s\n' "$result"
+		printf '\tExpected Ok\n'
+	fi
+}
+
+function testfail {
+	tname="$1"
+	shift
+	local result
+	if result=$("$@"); then
+		printf 'Failed: %s\n' "$tname"
+		printf '\tGot: %s\n' "$result"
+		printf '\tExpected to fail\n'
+	else
+		printf 'Ok: %s\n' "$tname"
+	fi
+}
+
+[ -z "$ssdb" ] && error "no ssdb executable given"
+[ ! -x "$ssdb" ] && error "ssdb should be executable"
+
+return 0

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb"
+
+testres  "list_empty_snapshot" ""             "$ssdb" list
+testres  "add_value:1"         "abc_value"    "$ssdb" add abc_key abc_value
+testres  "get_value:1"         "abc_value"    "$ssdb" get abc_key
+testres  "delete_value:1"      "abc_value"    "$ssdb" delete abc_key
+testfail "get_value:1"                        "$ssdb" get abc_key

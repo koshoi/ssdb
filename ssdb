@@ -188,12 +188,14 @@ function seek4 {
 }
 
 function line2key {
+	debug "line2key '$1'"
 	l="$1"
 	local larr=($l)
 	echo "${larr[$KEY_POSITION]}"
 }
 
 function line2value {
+	debug "line2value '$1'"
 	l="$1"
 	local larr=($l)
 	echo "${larr[$VALUE_POSITION]}"
@@ -210,7 +212,7 @@ function find_position_for_key {
 	local endpos
 	endpos=$(( $(fsize "$file") - 1 ))
 
-	if [ "$endpos" -eq 0 ]; then
+	if [ "$endpos" -eq 0 -o "$endpos" -eq -1 ]; then
 		echo "APPEND 0"
 		return 0
 	fi
