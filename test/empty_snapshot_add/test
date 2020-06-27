@@ -8,7 +8,10 @@ dir=$(cd "$(dirname "$0")" && pwd)
 source "$dir/../testenv" "$dir" "$ssdb"
 
 testres  "list_empty_snapshot" ""             "$ssdb" list
-testres  "add_value:1"         "abc_value"    "$ssdb" add abc_key abc_value
+testres  "add_value:1"         "OK"           "$ssdb" add abc_key abc_value
 testres  "get_value:1"         "abc_value"    "$ssdb" get abc_key
-testres  "delete_value:1"      "abc_value"    "$ssdb" delete abc_key
+testfail "readd_value:1"                      "$ssdb" add abc_key abc_newvalue
+testres  "reset_value:1"       "OK"           "$ssdb" set abc_key abc_newvalue
+testres  "get_value:2"         "abc_newvalue" "$ssdb" get abc_key
+testres  "delete_value:1"      "OK"           "$ssdb" delete abc_key
 testfail "get_value:1"                        "$ssdb" get abc_key

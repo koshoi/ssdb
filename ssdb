@@ -15,7 +15,8 @@ CR="10"
 BUFSIZE=10
 
 KEY_POSITION=0
-VALUE_POSITION=1
+META_POSITION=1
+VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
@@ -97,6 +98,24 @@ function fsize {
 	size=$(wc -c "$f")
 	size=($size)
 	echo "${size[0]}"
+}
+
+function format_value {
+	local value="$1"
+	if echo "$value" | grep -q '\s'; then
+		printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
+		return 0
+	fi
+
+	local printable
+	printable=$(echo "$value" | strings -n 1)
+	if [ "$printable" == "$value" ]; then
+		printf 'format=raw %s' "$value"
+		return 0
+	fi
+
+	printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
+	return 0
 }
 
 function get_bytes {
@@ -187,16 +206,57 @@ function seek4 {
 	return 0
 }
 
+function split {
+	local del="$1"
+	local str="$2"
+	local IFS="$del"
+	read -ra arr <<< "$str"
+	for e in "${arr[@]}"; do
+		echo "$e"
+	done
+}
+
+function meta2tag {
+	local meta="$1"
+	local metatag="$2"
+
+	local metalist
+	metalist=($(split ',' "$meta"))
+	for tagline in "${metalist[@]}"; do
+		local tag="${tagline%=*}"
+		local tagvalue="${tagline#*=}"
+		if [ "$metatag" == "$tag" ]; then
+			printf '%s' "$tagvalue"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
 function line2key {
 	debug "line2key '$1'"
-	l="$1"
+	local l="$1"
 	local larr=($l)
 	echo "${larr[$KEY_POSITION]}"
 }
 
+function line2meta {
+	debug "line2key '$1'"
+	local l="$1"
+	local metatag="${2:-}"
+	local larr=($l)
+	local meta="${larr[$META_POSITION]}"
+	if [ -z "$metatag" ]; then
+		printf '%s' "$meta"
+	fi
+
+	meta2tag "$meta" "$metatag"
+}
+
 function line2value {
 	debug "line2value '$1'"
-	l="$1"
+	local l="$1"
 	local larr=($l)
 	echo "${larr[$VALUE_POSITION]}"
 }
@@ -404,6 +464,8 @@ function _set_key {
 	local key="$1"
 	local value="$2"
 	local noreplace="${3:-}"
+
+	value=$(format_value "$value")
 	local snap
 	snap=$(snap_name)
 
@@ -434,7 +496,9 @@ function _set_key {
 				printf "KEY_ALREADY_SET"
 				return 1
 			fi
-			head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
+			if [ "$pos" -ne 0 ]; then
+				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
+			fi
 			echo "$key $value" >> "$snapinprogress"
 			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
 		fi
@@ -448,12 +512,10 @@ function _set_key {
 
 function run_set {
 	lock GLOBAL
-	local value
-	value="$(printf '%s' "$2" | base64 -w 0)"
-	debug "run_set $1 $value"
+	debug "run_set $1 '$2'"
 
 	local result
-	if result="$(_set_key "$1" "$value")"; then
+	if result="$(_set_key "$1" "$2")"; then
 		debug "added"
 	else
 		local EXIT=$?
@@ -464,36 +526,32 @@ function run_set {
 	fi
 
 	unlock GLOBAL
-	printf '%s' "$2"
+	printf 'OK'
 	return 0
 }
 
 function run_add {
 	lock GLOBAL
-	local value
-	value="$(printf '%s' "$2" | base64 -w 0)"
-	debug "run_add $1 $value"
+	debug "run_set $1 '$2'"
 
 	local result
-	if result="$(_set_key "$1" "$value" noreplace)"; then
+	if result="$(_set_key "$1" "$2" noreplace)"; then
 		debug "added"
 	else
-		EXIT=$?
-		debug "failed to add new key, $result"
+		local EXIT=$?
+		debug "failed to set key, $result"
 		unlock GLOBAL
 		printf "%s" "$result"
 		return $EXIT
 	fi
 
 	unlock GLOBAL
-	printf '%s' "$2"
+	printf 'OK'
 	return 0
 }
 
-# returns b64-encoded value
 function _delete_key {
 	local key="$1"
-	local value
 	local snap
 	snap=$(snap_name)
 
@@ -510,7 +568,6 @@ function _delete_key {
 			debug "found key=$key at position=$pos"
 			local line
 			line=$(get_line "$snap" "$pos")
-			value=$(line2value "$line")
 			local nextcr
 			nextcr=$(seek4 "$snap" "$(( pos + 1 ))" "$CR")
 			debug "nextcr=$nextcr"
@@ -523,15 +580,13 @@ function _delete_key {
 	fi
 
 	mv -f "$snapinprogress" "$snap"
-	printf '%s' "$value"
 }
 
 function run_del {
 	lock GLOBAL
 
 	debug "run_del $1"
-	local result
-	if result="$(_delete_key "$1")"; then
+	if _delete_key "$1"; then
 		debug "Found"
 	else
 		local EXIT=$?
@@ -542,18 +597,19 @@ function run_del {
 
 	unlock GLOBAL
 
-	printf '%s' "$result" | base64 -d
+	printf 'OK'
 	return 0
 }
 
-# returns b64-encoded value
-function _get_by_key {
+# returns full line containing key
+function _get_line_with_key {
 	local key="$1"
 	local no_value="${2-}"
 
 	local snap
 	snap=$(snap_name)
 	local findres
+	local line
 	if findres=$(find_position_for_key "$snap" "$key"); then
 		debug "findres=$findres"
 		findres=($findres)
@@ -561,7 +617,7 @@ function _get_by_key {
 			line=$(get_line "$snap" "${findres[1]}")
 			debug "line=$line"
 			if [ -z "$no_value" ]; then
-				line2value "$line"
+				printf '%s' "$line"
 			fi
 			return 0
 		fi
@@ -573,9 +629,9 @@ function run_get {
 	lock GLOBAL
 
 	debug "run_get $1"
-	local result
-	if result="$(_get_by_key "$1")"; then
-		debug "Found"
+	local line
+	if line="$(_get_line_with_key "$1")"; then
+		debug "Found line='$line'"
 	else
 		local EXIT=$?
 		debug "Not Found"
@@ -585,15 +641,26 @@ function run_get {
 
 	unlock GLOBAL
 
-	# decoding comes because of issues with newlines in values
-	printf '%s' "$result" | base64 -d
+	local fmt
+	fmt=$(line2meta "$line" 'format')
+	if [ "$fmt" == 'raw' ]; then
+		printf '%s' "$(line2value "$line")"
+		return 0
+	fi
+
+	if [ "$fmt" == 'b64' ]; then
+		printf '%s' "$(line2value "$line")" | base64 -d
+		return 0
+	fi
+
+	error "Unknown fmt=$fmt"
 }
 
 function run_check {
 	lock GLOBAL
 
 	debug "run_check $1"
-	if _get_by_key "$1" 1; then
+	if _get_line_with_key "$1" 1; then
 		unlock GLOBAL
 		debug "Key present"
 		return 0
