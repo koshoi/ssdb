@@ -3,10 +3,10 @@
 set -eu
 set -o pipefail
 
-DEBUG="${SSDB_DEBUG:-}"
+SSDB_DEBUG="${SSDB_DEBUG:-}"
 
-SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
-DBNAME="${SSDB_DATABASE:-default}"
+SSDB_SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
+SSDB_DATABASE="${SSDB_DATABASE:-default}"
 CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
@@ -22,7 +22,7 @@ VALUE_POSITION=2
 TAKEN_LOCKS=()
 
 DEPENDENCIES=(base64 cat sed printf mkdir sleep echo hexdump strings)
-mkdir -p "$SNAPDIR"
+mkdir -p "$SSDB_SNAPDIR"
 
 function _log_prefix {
 	local level="$1"
@@ -39,7 +39,7 @@ function _log {
 }
 
 function debug {
-	if [ -n "$DEBUG" ]; then
+	if [ -n "$SSDB_DEBUG" ]; then
 		_log 'debug' "$DEBUG_INFO  $*"
 	fi
 }
@@ -391,7 +391,21 @@ function find_position_for_key {
 # PREAMBLE The syntax is simple
 # AUTODOC 
 # AUTODOC ssdb [OPTIONS] COMMAND KEY ?VALUE
-# AUTODOC there are no options yet you can use, but this is in WIP
+# AUTODOC 
+# AUTODOC configurable options are
+# AUTODOC 
+# AUTODOC 	-D|--database|--db 'dbname'
+# AUTODOC 		use given database instead of default one ('default')
+# AUTODOC 		can also be configured with SSDB_DATABASE env option
+# AUTODOC 
+# AUTODOC 	-S|--snapdir 'snapdir'
+# AUTODOC 		use given snapshot_directory instead of default one ($HOME/.ssdb)
+# AUTODOC 		can also be configured with SSDB_SNAPDIR env option
+# AUTODOC 
+# AUTODOC 	-d|--debug
+# AUTODOC 		use debug
+# AUTODOC 		can also be configured with SSDB_DEBUG env option
+# AUTODOC 
 # AUTODOC almost every command has a shorter version for comfortable usage in console
 # AUTODOC 
 # AUTODOC As for now KEY can't contain any whitespaces, special characters and binary shit
@@ -418,11 +432,11 @@ function print_help {
 }
 
 function lock_name {
-	echo "${SNAPDIR}/lock.${DBNAME}.${1:-GLOBAL}"
+	echo "${SSDB_SNAPDIR}/lock.${SSDB_DATABASE}.${1:-GLOBAL}"
 }
 
 function snap_name {
-	local snap="${SNAPDIR}/snap.${DBNAME}"
+	local snap="${SSDB_SNAPDIR}/snap.${SSDB_DATABASE}"
 	touch "$snap"
 	echo "$snap"
 }
@@ -760,13 +774,39 @@ function run_truncate {
 	debug "run_snap"
 	local snap
 	snap=$(snap_name)
-	echo > "$snap"
+	printf '' > "$snap"
 	unlock GLOBAL
 }
 
 COMMAND=""
 KEY=""
 VALUE=""
+
+while [[ $# -gt 0 ]]; do
+	option="$1"
+	debug "parsing $option"
+
+	case $option in
+		-D|--database|--db)
+			SSDB_DATABASE="${2:-}"
+			[ -z "$SSDB_DATABASE" ] && error "$option param can not be empty"
+			shift
+			shift
+			;;
+		-S|--snapdir)
+			SSDB_SNAPDIR="$2"
+			[ -z "$SSDB_SNAPDIR" ] && error "$option param can not be empty"
+			shift
+			shift
+			;;
+		-d|--debug)
+			SSDB_DEBUG=1
+			shift
+			;;
+		*)
+			break;;
+	esac
+done
 
 GIVEN_COMMAND="${1:-}"
 
@@ -789,34 +829,51 @@ case "$GIVEN_COMMAND" in
 					error "VALUE is undefined"
 				else
 					VALUE="$3"
+					shift
+					shift
+					shift
 				fi
 				;;
 			d|del|delete)
-				COMMAND="del";;
+				COMMAND="del"
+				shift
+				shift;;
 			g|get)
-				COMMAND="get";;
+				COMMAND="get"
+				shift
+				shift;;
 			c|check)
-				COMMAND="check";;
+				COMMAND="check"
+				shift
+				shift;;
 		esac;;
 	l|list)
-		COMMAND="list";;
+		COMMAND="list"
+		shift;;
 	snap)
-		COMMAND="snap";;
+		COMMAND="snap"
+		shift;;
 	bindump)
-		COMMAND="bindump";;
+		COMMAND="bindump"
+		shift;;
 	truncate)
-		COMMAND="truncate";;
+		COMMAND="truncate"
+		shift;;
 	h|help)
-		COMMAND="help";;
+		COMMAND="help"
+		shift;;
 	'')
 		error "No command given, consider running 'ssdb help'";;
 	*)
 		error "'$GIVEN_COMMAND' command is unknown, consider running 'ssdb help'";;
 esac
-shift
 
 debug "COMMAND=$COMMAND KEY=$KEY VALUE=$VALUE"
-debug "SNAPDIR=$SNAPDIR"
+debug "SSDB_SNAPDIR=$SSDB_SNAPDIR"
+
+if [[ $# -gt 0 ]]; then
+	error 'extra params left, usage ssdb [OPTIONS] COMMAND ?ARG1 ?ARG2'
+fi
 
 case "$COMMAND" in
 	add)
