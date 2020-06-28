@@ -9,7 +9,7 @@ Welcome to
 /____/____/_____/_____/
 ```
 
-SSDB stands for Shebang Started DataBase
+SSDB stands for Supremely Stupid DataBase
 The main concept of this 'DataBase' is
 
 0) Me training to write in bash
