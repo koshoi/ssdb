@@ -8,7 +8,7 @@ SSDB_DEBUG="${SSDB_DEBUG:-}"
 SSDB_SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 SSDB_DATABASE="${SSDB_DATABASE:-default}"
 SSDB_ENCRYPTION_KEY="${SSDB_ENCRYPTION_KEY:-}"
-CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
+SSDB_CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
@@ -803,6 +803,25 @@ function run_truncate {
 	unlock GLOBAL
 }
 
+# AUTODOC 
+# AUTODOC ssdb dep|depcheck
+# AUTODOC 	checks external dependecies
+function check_dependencies {
+	for dep in "${DEPENDENCIES[@]}"; do
+		if ! type "$dep" 1>/dev/null 2>/dev/null; then
+			error "Unmet dependency: $dep"
+		fi
+	done
+
+	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
+		for dep in "${ENC_DEPENDENCIES[@]}"; do
+			if ! type "$dep" 1>/dev/null 2>/dev/null; then
+				error "Unmet dependency: $dep"
+			fi
+		done
+	fi
+}
+
 COMMAND=""
 KEY=""
 VALUE=""
@@ -846,22 +865,9 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-if [ "$CHECK_DEPENDENCIES" -ne 0 ]; then
-	for dep in "${DEPENDENCIES[@]}"; do
-		if ! type "$dep" 1>/dev/null 2>/dev/null; then
-			error "Unmet dependency: $dep"
-		fi
-	done
-
-	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
-		for dep in "${ENC_DEPENDENCIES[@]}"; do
-			if ! type "$dep" 1>/dev/null 2>/dev/null; then
-				error "Unmet dependency: $dep"
-			fi
-		done
-	fi
+if [ "$SSDB_CHECK_DEPENDENCIES" -ne 0 ]; then
+	check_dependencies
 fi
-
 
 GIVEN_COMMAND="${1:-}"
 
@@ -914,6 +920,9 @@ case "$GIVEN_COMMAND" in
 	truncate)
 		COMMAND="truncate"
 		shift;;
+	dep|depcheck)
+		COMMAND="depcheck"
+		shift;;
 	h|help)
 		COMMAND="help"
 		shift;;
@@ -952,6 +961,8 @@ case "$COMMAND" in
 		run_truncate;;
 	help)
 		print_help;;
+	depcheck)
+		check_dependencies;;
 	*)
 		error "'$COMMAND' command is parsed but not implemented yet";;
 esac

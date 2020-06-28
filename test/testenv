@@ -4,7 +4,7 @@ set -euo pipefail
 
 export SSDB_DEBUG=
 export SSDB_SNAPDIR="$1"
-export BAIL_ON_FAIL=1
+export BAIL_ON_FAIL=
 ssdb="$2"
 export TEST_NAME="${3:-TEST}"
 
