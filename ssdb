@@ -5,14 +5,15 @@ set -o pipefail
 
 DEBUG="${SSDB_DEBUG:-}"
 
-SNAPDIR="${SSDB_SNAPDIR:-/tmp/ssdb_snap}"
+SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 DBNAME="${SSDB_DATABASE:-default}"
+USE_BIN_SEARCH="${USE_BIN_SEARCH:-1}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
 
 CR="10"
-BUFSIZE=128
+BUFSIZE=1024
 
 KEY_POSITION=0
 META_POSITION=1
@@ -20,7 +21,7 @@ VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
-DEPENDENCIES=(base64 cat cat sed printf mkdir sleep echo hexdump)
+DEPENDENCIES=(base64 cat sed printf mkdir sleep echo hexdump strings)
 mkdir -p "$SNAPDIR"
 
 function _log_prefix {
@@ -60,11 +61,13 @@ function error {
 	exit 127
 }
 
-for dep in "${DEPENDENCIES[@]}"; do
-	if ! type "$dep" 1>/dev/null 2>/dev/null; then
-		error "Unmet dependency: $dep"
-	fi
-done
+if false; then
+	for dep in "${DEPENDENCIES[@]}"; do
+		if ! type "$dep" 1>/dev/null 2>/dev/null; then
+			error "Unmet dependency: $dep"
+		fi
+	done
+fi
 
 function max {
 	if [ "$1" -gt "$2" ]; then
@@ -603,20 +606,17 @@ function _get_line_with_key {
 
 	local snap
 	snap=$(snap_name)
-	local findres
-	local line
-	if findres=$(find_position_for_key "$snap" "$key"); then
-		debug "get_line:findres=$findres"
-		findres=($findres)
-		if [ "${findres[0]}" == "KEYFOUND" ]; then
-			line=$(get_line "$snap" "${findres[1]}")
-			debug "line=$line"
+
+	while read -r line; do
+		debug "[get] scanning for '$key' no_value=$no_value, line='$line'"
+		if [ "$(line2key "$line")" == "$key" ]; then
+			debug "FOUND $line"
 			if [ -z "$no_value" ]; then
 				printf '%s' "$line"
 			fi
 			return 0
 		fi
-	fi
+	done < "$snap"
 	return 1
 }
 
@@ -712,6 +712,16 @@ function run_bindump {
 	unlock GLOBAL
 }
 
+function run_truncate {
+	lock GLOBAL
+
+	debug "run_snap"
+	local snap
+	snap=$(snap_name)
+	echo > "$snap"
+	unlock GLOBAL
+}
+
 COMMAND=""
 KEY=""
 VALUE=""
@@ -752,6 +762,8 @@ case "$GIVEN_COMMAND" in
 		COMMAND="snap";;
 	bindump)
 		COMMAND="bindump";;
+	truncate)
+		COMMAND="truncate";;
 	h|help)
 		COMMAND="help";;
 	'')
@@ -781,6 +793,8 @@ case "$COMMAND" in
 		run_snap;;
 	bindump)
 		run_bindump;;
+	truncate)
+		run_truncate;;
 	help)
 		print_help;;
 	*)
