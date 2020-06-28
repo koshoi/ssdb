@@ -22,22 +22,27 @@ VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
-DEPENDENCIES=(base64 cat sed printf mkdir sleep echo hexdump strings)
+DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings)
 ENC_DEPENDENCIES=(gpg)
 mkdir -p "$SSDB_SNAPDIR"
+
+function _echo {
+	printf '%s\n' "${1:-}"
+}
 
 function _log_prefix {
 	local level="$1"
 	local _caller
 	_caller="$(caller 2)"
 	_caller=($_caller)
-	echo -e "$(date '+%Y-%m-%dT%H:%M:%S')\t[$level:${_caller[0]}:${_caller[1]}]\t"
+	printf '[%s:%s:%s]\t' "$level" "${_caller[0]}" "${_caller[1]}"
+	# printf '%s\t[%s:%s:%s]\t' "$(date '+%Y-%m-%dT%H:%M:%S')" "$level" "${_caller[0]}" "${_caller[1]}"
 }
 
 function _log {
 	local level="$1"
 	local msg="$2"
-	echo "$(_log_prefix "$level")${msg}" 1>&2
+	_echo "$(_log_prefix "$level")${msg}" 1>&2
 }
 
 function debug {
@@ -65,17 +70,17 @@ function error {
 
 function max {
 	if [ "$1" -gt "$2" ]; then
-		echo "$1"
+		_echo "$1"
 	else
-		echo "$2"
+		_echo "$2"
 	fi
 }
 
 function min {
 	if [ "$1" -lt "$2" ]; then
-		echo "$1"
+		_echo "$1"
 	else
-		echo "$2"
+		_echo "$2"
 	fi
 }
 
@@ -86,7 +91,7 @@ function half {
 	from=$(max "$1" "$2")
 	to=$(min "$1" "$2")
 	len=$(( to - from ))
-	echo $(( from + len / 2 ))
+	_echo $(( from + len / 2 ))
 }
 
 function fsize {
@@ -94,7 +99,7 @@ function fsize {
 	local size
 	size=$(wc -c "$f")
 	size=($size)
-	echo "${size[0]}"
+	_echo "${size[0]}"
 }
 
 function format_value {
@@ -106,13 +111,13 @@ function format_value {
 		return 0
 	fi
 
-	if echo "$value" | grep -q '\s'; then
+	if _echo "$value" | grep -q '\s'; then
 		printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
 		return 0
 	fi
 
 	local printable
-	printable=$(echo "$value" | strings -n 1)
+	printable=$(_echo "$value" | strings -n 1)
 	if [ "$printable" == "$value" ]; then
 		printf 'format=raw %s' "$value"
 		return 0
@@ -200,7 +205,7 @@ function seek4 {
 		fi
 	done
 
-	echo "$found"
+	_echo "$found"
 	return 0
 }
 
@@ -210,7 +215,7 @@ function split {
 	local IFS="$del"
 	read -ra arr <<< "$str"
 	for e in "${arr[@]}"; do
-		echo "$e"
+		_echo "$e"
 	done
 }
 
@@ -236,7 +241,7 @@ function line2key {
 	debug "line2key '$1'"
 	local l="$1"
 	local larr=($l)
-	echo "${larr[$KEY_POSITION]}"
+	_echo "${larr[$KEY_POSITION]}"
 }
 
 function line2meta {
@@ -256,7 +261,7 @@ function line2value {
 	debug "line2value '$1'"
 	local l="$1"
 	local larr=($l)
-	echo "${larr[$VALUE_POSITION]}"
+	_echo "${larr[$VALUE_POSITION]}"
 }
 
 # returns A, B
@@ -271,31 +276,31 @@ function find_position_for_key {
 	endpos=$(( $(fsize "$file") - 1 ))
 
 	if [ "$endpos" -eq 0 -o "$endpos" -eq -1 ]; then
-		echo "APPEND 0"
+		_echo "APPEND 0"
 		return 0
 	fi
 
 	local firstkey
 	firstkey=$(line2key "$(head -n 1 "$file")")
 	if [[ "$key" < "$firstkey" ]]; then
-		echo "APPEND 0"
+		_echo "APPEND 0"
 		return 0
 	fi
 
 	if [ "$key" == "$firstkey" ]; then
-		echo "KEYFOUND 0"
+		_echo "KEYFOUND 0"
 		return 0
 	fi
 
 	local lastkey
 	lastkey=$(line2key "$(tail -n 1 "$file")")
 	if [[ "$key" > "$lastkey" ]]; then
-		echo "APPEND $endpos"
+		_echo "APPEND $endpos"
 		return 0
 	fi
 
 	if [ "$key" == "$lastkey" ]; then
-		echo "KEYFOUND $(seek4 "$file" "$endpos" "$CR" -1)"
+		_echo "KEYFOUND $(seek4 "$file" "$endpos" "$CR" -1)"
 		return 0
 	fi
 
@@ -334,13 +339,13 @@ function find_position_for_key {
 
 		if [ "$lkey" == "$key" ]; then
 			debug "LEFTFOUND AT POSITION=$foundl, line=$linel"
-			echo "KEYFOUND $foundl"
+			_echo "KEYFOUND $foundl"
 			return 0
 		fi
 
 		if [ "$rkey" == "$key" ]; then
 			debug "RIGHTFTFOUND AT POSITION=$foundr, line=$liner"
-			echo "KEYFOUND $foundr"
+			_echo "KEYFOUND $foundr"
 			return 0
 		fi
 
@@ -353,7 +358,7 @@ function find_position_for_key {
 				endpos="$foundl"
 			else
 				debug "BETWEEN [$lkey $key $rkey]"
-				echo "APPEND $foundr"
+				_echo "APPEND $foundr"
 				exit 0
 			fi
 		fi
@@ -443,13 +448,13 @@ function print_help {
 }
 
 function lock_name {
-	echo "${SSDB_SNAPDIR}/lock.${SSDB_DATABASE}.${1:-GLOBAL}"
+	_echo "${SSDB_SNAPDIR}/lock.${SSDB_DATABASE}.${1:-GLOBAL}"
 }
 
 function snap_name {
 	local snap="${SSDB_SNAPDIR}/snap.${SSDB_DATABASE}"
 	touch "$snap"
-	echo "$snap"
+	_echo "$snap"
 }
 
 function lock {
@@ -502,11 +507,11 @@ function _set_key {
 		if [ "$postype" == "APPEND" ]; then
 			debug "appending key=$key at position=$pos"
 			if [ "$pos" -eq 0 ]; then
-				echo "$key $value" > "$snapinprogress"
+				_echo "$key $value" > "$snapinprogress"
 				cat "$snap" >> "$snapinprogress"
 			else
 				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
-				echo "$key $value" >> "$snapinprogress"
+				_echo "$key $value" >> "$snapinprogress"
 				tail -c "+$(( pos + 2 ))" "$snap" >> "$snapinprogress"
 			fi
 		else
@@ -522,7 +527,7 @@ function _set_key {
 			if [ "$pos" -ne 0 ]; then
 				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
 			fi
-			echo "$key $value" >> "$snapinprogress"
+			_echo "$key $value" >> "$snapinprogress"
 			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
 		fi
 		debug "SET FR0=${findres[0]} FR1=${findres[1]}"
@@ -781,7 +786,7 @@ function run_bindump {
 	local snap
 	snap=$(snap_name)
 	hexdump -ve '1/1 "(%_ad:%02d:"' -e '1/1 "%_c) "' "$snap"
-	echo
+	_echo
 	unlock GLOBAL
 }
 
@@ -826,7 +831,7 @@ while [[ $# -gt 0 ]]; do
 			shift
 			;;
 		-r|--read-encryption)
-			echo -n 'Enter passphrase: ' 1>&2
+			printf 'Enter passphrase: ' 1>&2
 			read -s enc_key;
 			SSDB_ENCRYPTION_KEY="$enc_key"
 			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
