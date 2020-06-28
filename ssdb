@@ -415,9 +415,6 @@ function print_help {
 	for tag in PREAMBLE AUTODOC MILESTONES; do
 		grep "^# $tag" "$0" | sed "s/^# $tag //g"
 	done
-cat <<'EOF'
-
-EOF
 }
 
 function lock_name {
