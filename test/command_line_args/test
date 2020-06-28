@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'cmd_line_args'
+
+listres1=$(echo -e "default\ndefault2")
+listres2=$(echo -e "nondefault\nnondefault2")
+
+testres  "list_default_snapshot"      "default"      "$ssdb" list
+testres  "list_nondefault_snapshot"   "nondefault"   "$ssdb" --db nondefault list
+testres  "get_from_default"           "default"      "$ssdb" get default
+testres  "get_from_nondefault"        "nondefault"   "$ssdb" --db nondefault get nondefault
+testres  "set_to_default"             "OK"           "$ssdb" set default2 default2
+testres  "set_to_nondefault"          "OK"           "$ssdb" --db nondefault set nondefault2 nondefault2
+testres  "list_default_snapshot:2"    "$listres1"    "$ssdb" list
+testres  "list_nondefault_snapshot:2" "$listres2"    "$ssdb" --db nondefault list
