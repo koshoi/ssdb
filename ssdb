@@ -7,7 +7,7 @@ DEBUG="${SSDB_DEBUG:-}"
 
 SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 DBNAME="${SSDB_DATABASE:-default}"
-USE_BIN_SEARCH="${USE_BIN_SEARCH:-1}"
+CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
@@ -61,7 +61,7 @@ function error {
 	exit 127
 }
 
-if false; then
+if [ "$CHECK_DEPENDENCIES" -ne 0 ]; then
 	for dep in "${DEPENDENCIES[@]}"; do
 		if ! type "$dep" 1>/dev/null 2>/dev/null; then
 			error "Unmet dependency: $dep"
@@ -364,54 +364,59 @@ function find_position_for_key {
 }
 
 
+# PREAMBLE Welcome to
+# PREAMBLE 
+# PREAMBLE    __________ ____  ____
+# PREAMBLE   / ___/ ___// __ \/ __ )
+# PREAMBLE   \__ \\__ \/ / / / __  |
+# PREAMBLE  ___/ /__/ / /_/ / /_/ /
+# PREAMBLE /____/____/_____/_____/
+# PREAMBLE 
+# PREAMBLE 
+# PREAMBLE SSDB stands for Supremely Stupid DataBase
+# PREAMBLE The main concept of this 'DataBase' is
+# PREAMBLE 	1) Being serverless
+# PREAMBLE 	2) Being written in bash
+# PREAMBLE 	3) Beign written in as clean bash as possible (OK, I fucked it up when I added the dirtiest binary search possible)
+# PREAMBLE 	4) Being written in single bash file
+# PREAMBLE 	5) Having a snapshot that can be easily fixed in vim if needed
+# PREAMBLE 	6) Having some sort of isolation, but not necessary
+# PREAMBLE 
+# PREAMBLE This is key-value DB that stores data in a file
+# PREAMBLE It does not have a server, but it has a client (you are reading help for it at the moment)
+# PREAMBLE 
+# PREAMBLE Client's are kinda following gentelmens agreement on
+# PREAMBLE 'How we, gentelmen, should write to this file called snapshot so it keeps being adequate'
+# PREAMBLE 
+# PREAMBLE The syntax is simple
+# AUTODOC 
+# AUTODOC ssdb [OPTIONS] COMMAND KEY ?VALUE
+# AUTODOC there are no options yet you can use, but this is in WIP
+# AUTODOC almost every command has a shorter version for comfortable usage in console
+# AUTODOC 
+# AUTODOC As for now KEY can't contain any whitespaces, special characters and binary shit
+# AUTODOC Because this is DB for gentlemen, and gentlemen are not going to use that symbols, not to spoil the fun for other gentlemen
+# AUTODOC I guess I will check for whitespaces easily, not so easy for binary shit
+# AUTODOC 
+# AUTODOC However VALUE can contain any of that
+# AUTODOC 
+# AUTODOC 
+# AUTODOC ssdb help
+# AUTODOC ssdb h
+# AUTODOC 	prints this help
+# MILESTONES 
+# MILESTONES Roadmaps are
+# MILESTONES 	1) Subscribe on any changes to the key
+# MILESTONES 	2) Subscribe on any changes to the key that matches the wildcard 
+# MILESTONES 	3) Replication)))
+# MILESTONES 	4) More data structures (like sets, lists and maybe something else)
+# MILESTONES 	5) More than single database
 function print_help {
+	for tag in PREAMBLE AUTODOC MILESTONES; do
+		grep "^# $tag" "$0" | sed "s/^# $tag //g"
+	done
 cat <<'EOF'
 
-Welcome to
-
-   __________ ____  ____ 
-  / ___/ ___// __ \/ __ )
-  \__ \\__ \/ / / / __  |
- ___/ /__/ / /_/ / /_/ /
-/____/____/_____/_____/
-
-
-SSDB stands for Shebang Started DataBase
-The main concept of this 'DataBase' is
-	1) Being serverless
-	2) Being written in bash
-	3) Beign written in as clean bash as possible
-	4) Being written in single bash file
-	5) Having a snapshot that can be easily fixed in vim if needed
-	6) Having some sort of isolation, but not necessary
-
-This is key-value DB that stores data in a file
-It does not have a server, but it has a client (you are reading help for it at the moment)
-
-Client's are kinda following gentelmens agreement on
-'How we, gentelmen, should write to this file called snapshot so it keeps being adequate'
-
-The syntax is simple
-
-ssdb add   KEY VALUE
-ssdb del   KEY
-ssdb get   KEY
-ssdb check KEY
-ssdb list
-ssdb help
-
-As for now KEY can't contain any whitespaces, special characters and binary shit
-Because this is DB for gentlemen, and gentlemen are not going to use that symbols, not to spoil the fun for other gentlemen
-I guess I will check for whitespaces easily, not so easy for binary shit
-
-However VALUE can contain any of that
-
-Roadmaps are
-	1) Subscribe on any changes to the key
-	2) Subscribe on any changes to the key that matches the wildcard 
-	3) Replication)))
-	4) More data structures (like sets, lists and maybe something else)
-	5) More than single database
 EOF
 }
 
@@ -506,6 +511,11 @@ function _set_key {
 	mv -f "$snapinprogress" "$snap"
 }
 
+# AUTODOC 
+# AUTODOC ssdb set KEY VALUE
+# AUTODOC ssdb s   KEY VALUE
+# AUTODOC 	it sets a KEY to a VALUE
+# AUTODOC 	if the KEY was already present it overrides it
 function run_set {
 	lock GLOBAL
 	debug "run_set $1 '$2'"
@@ -526,6 +536,11 @@ function run_set {
 	return 0
 }
 
+# AUTODOC 
+# AUTODOC ssdb add KEY VALUE
+# AUTODOC ssdb a   KEY VALUE
+# AUTODOC 	it add a new KEY to a VALUE
+# AUTODOC 	if the KEY was already present it exits with error
 function run_add {
 	lock GLOBAL
 	debug "run_set $1 '$2'"
@@ -580,6 +595,12 @@ function _delete_key {
 	mv -f "$snapinprogress" "$snap"
 }
 
+# AUTODOC 
+# AUTODOC ssdb delete KEY
+# AUTODOC ssdb del    KEY
+# AUTODOC ssdb d      KEY
+# AUTODOC 	it deletes a KEY from ssdb
+# AUTODOC 	if the KEY was not found it exits with error
 function run_del {
 	lock GLOBAL
 
@@ -620,6 +641,11 @@ function _get_line_with_key {
 	return 1
 }
 
+# AUTODOC 
+# AUTODOC ssdb get KEY
+# AUTODOC ssdb g   KEY
+# AUTODOC 	it returns a VALUE that stands for KEY in ssdb
+# AUTODOC 	if the KEY was not found it exits with error
 function run_get {
 	lock GLOBAL
 
@@ -651,6 +677,11 @@ function run_get {
 	error "Unknown fmt=$fmt"
 }
 
+# AUTODOC 
+# AUTODOC ssdb check KEY
+# AUTODOC ssdb c   KEY
+# AUTODOC 	it exits with 0 if KEY is present in ssdb
+# AUTODOC 	if the KEY was not found it exits with error
 function run_check {
 	lock GLOBAL
 
@@ -674,6 +705,10 @@ function _list_keys {
 	sed 's/ .*//' "$snap"
 }
 
+# AUTODOC 
+# AUTODOC ssdb list
+# AUTODOC ssdb l
+# AUTODOC 	returns sorted list of keys in ssdb
 function run_list {
 	lock GLOBAL
 
@@ -691,6 +726,10 @@ function run_list {
 	fi
 }
 
+
+# AUTODOC 
+# AUTODOC ssdb snap
+# AUTODOC 	returns snapshot as is (can be used for backup needs)
 function run_snap {
 	lock GLOBAL
 
@@ -701,6 +740,9 @@ function run_snap {
 	unlock GLOBAL
 }
 
+# AUTODOC 
+# AUTODOC ssdb bindump
+# AUTODOC 	returns binary dumped snapshot (for debug puposes)
 function run_bindump {
 	lock GLOBAL
 
@@ -712,6 +754,9 @@ function run_bindump {
 	unlock GLOBAL
 }
 
+# AUTODOC 
+# AUTODOC ssdb truncate
+# AUTODOC 	deletes everything from ssdb
 function run_truncate {
 	lock GLOBAL
 
