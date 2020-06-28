@@ -11,6 +11,6 @@ testlist=$(find "$global_test_dir/test" -maxdepth 1 -mindepth 1 -type d)
 testlist=($testlist)
 
 for test_name in "${testlist[@]}"; do
-	echo bash "$test_name" "$ssdb_ex"
+	echo "Running $(basename "$test_name")"
 	bash "$test_name/test" "$ssdb_ex"
 done

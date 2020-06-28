@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'base64'
+
+listres=$(echo -e "a\nb\nc")
+new_b64_value='new value that should be b64 encoded'
+
+testres  "list_snapshot"     "$listres"             "$ssdb" list
+testres  "get_b64_value"     "value for a"          "$ssdb" get a
+testres  "get_b64_value:2"   "longer value for b"   "$ssdb" get b
+testres  "get_raw_value"     "value_for_c"          "$ssdb" get c
+testres  "set_new_b64_value" "OK"                   "$ssdb" add b64 "$new_b64_value"
+testres  "get_new_b64_value" "$new_b64_value"       "$ssdb" get b64

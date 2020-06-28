@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'short_commands'
+
+listres=$(echo -e "a\naa\naaa\naaaa")
+listres2=$(echo -e "a\naaaa")
+
+testres  "list_empty_snapshot" ""             "$ssdb" list
+testres  "full_add"            "OK"           "$ssdb" add a b
+testres  "short_add"           "OK"           "$ssdb" a   aa bb
+testres  "full_set"            "OK"           "$ssdb" set aaa bbb
+testres  "short_set"           "OK"           "$ssdb" s   aaaa bbbb
+testres  "full_list"           "$listres"     "$ssdb" list
+testres  "short_list"          "$listres"     "$ssdb" l
+testres  "full_check"          ""             "$ssdb" check a
+testres  "short_check"         ""             "$ssdb" c aaa
+testres  "full_get"            "b"            "$ssdb" get a
+testres  "short_get"           "bb"           "$ssdb" g aa
+testres  "full_delete"         "OK"           "$ssdb" delete aa
+testres  "short_delete"        "OK"           "$ssdb" del aaa
+testres  "test_list:0"         "$listres2"    "$ssdb" list
+
+exit 0
+testres  "short_delete:2"      "OK"           "$ssdb" d a
+testres  "test_list"           "aaaa"         "$ssdb" list

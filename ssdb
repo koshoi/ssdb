@@ -12,7 +12,7 @@ LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
 
 CR="10"
-BUFSIZE=10
+BUFSIZE=128
 
 KEY_POSITION=0
 META_POSITION=1
@@ -156,7 +156,7 @@ function seek4 {
 	local byte="$3"
 	local direction="${4:-1}"
 
-	debug "seek4: file=$file from=$pos byte=$byte direction=$direction"
+	debug "seek4: file='$file' from=$pos byte=$byte direction=$direction"
 	local size
 	size=$(fsize "$file")
 	local nextpos="$pos"
@@ -169,12 +169,6 @@ function seek4 {
 		else
 			nextpos=$(( pos + BUFSIZE ))
 			nextpos=$(min "$nextpos" "$size")
-		fi
-
-		if [ "$pos" -ge "$size" -o "$pos" -le 0 ]; then
-			debug "seek4: file=$file size=$size pos=$pos d=$direction quiting"
-			echo -1
-			return 0
 		fi
 
 		local bytes
@@ -306,15 +300,14 @@ function find_position_for_key {
 
 	while [ "$startpos" -ne "$endpos" ]; do
 		loopcnt=$(( loopcnt + 1 ))
-		local pfx="lc=$loopcnt sp=$startpos ep=$endpos"
+		local pfx="lc=$loopcnt sp=$startpos ep=$endpos key=$key"
 		debug "$pfx"
 		if [ "$loopcnt" -gt "$maxloop" ]; then
 			error "to many loops"
 		fi
 
 		pos=$(half "$startpos" "$endpos")
-		#debug "$pfx pos=$pos"
-		debug "$pfx"
+		debug "$pfx pos=$pos"
 
 		local foundr
 		local foundl
@@ -457,7 +450,7 @@ function unlock {
 	local lockdir
 	lockdir=$(lock_name "$lock_type")
 	rmdir "$lockdir"
-	debug "$lock_type lock removed"
+	# debug "$lock_type lock removed"
 }
 
 function _set_key {
@@ -571,7 +564,9 @@ function _delete_key {
 			local nextcr
 			nextcr=$(seek4 "$snap" "$(( pos + 1 ))" "$CR")
 			debug "nextcr=$nextcr"
-			head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
+			if [ "$pos" -ne 0 ]; then
+				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
+			fi
 			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
 		fi
 		debug "SET FR0=${findres[0]} FR1=${findres[1]}"
@@ -611,7 +606,7 @@ function _get_line_with_key {
 	local findres
 	local line
 	if findres=$(find_position_for_key "$snap" "$key"); then
-		debug "findres=$findres"
+		debug "get_line:findres=$findres"
 		findres=($findres)
 		if [ "${findres[0]}" == "KEYFOUND" ]; then
 			line=$(get_line "$snap" "${findres[1]}")
@@ -696,6 +691,27 @@ function run_list {
 	fi
 }
 
+function run_snap {
+	lock GLOBAL
+
+	debug "run_snap"
+	local snap
+	snap=$(snap_name)
+	cat "$snap"
+	unlock GLOBAL
+}
+
+function run_bindump {
+	lock GLOBAL
+
+	debug "run_snap"
+	local snap
+	snap=$(snap_name)
+	hexdump -ve '1/1 "(%_ad:%02d:"' -e '1/1 "%_c) "' "$snap"
+	echo
+	unlock GLOBAL
+}
+
 COMMAND=""
 KEY=""
 VALUE=""
@@ -732,6 +748,10 @@ case "$GIVEN_COMMAND" in
 		esac;;
 	l|list)
 		COMMAND="list";;
+	snap)
+		COMMAND="snap";;
+	bindump)
+		COMMAND="bindump";;
 	h|help)
 		COMMAND="help";;
 	'')
@@ -757,6 +777,10 @@ case "$COMMAND" in
 		run_check "$KEY";;
 	list)
 		run_list;;
+	snap)
+		run_snap;;
+	bindump)
+		run_bindump;;
 	help)
 		print_help;;
 	*)
