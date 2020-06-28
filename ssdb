@@ -23,6 +23,7 @@ VALUE_POSITION=2
 TAKEN_LOCKS=()
 
 DEPENDENCIES=(base64 cat sed printf mkdir sleep echo hexdump strings)
+ENC_DEPENDENCIES=(gpg)
 mkdir -p "$SSDB_SNAPDIR"
 
 function _log_prefix {
@@ -61,14 +62,6 @@ function error {
 
 	exit 127
 }
-
-if [ "$CHECK_DEPENDENCIES" -ne 0 ]; then
-	for dep in "${DEPENDENCIES[@]}"; do
-		if ! type "$dep" 1>/dev/null 2>/dev/null; then
-			error "Unmet dependency: $dep"
-		fi
-	done
-fi
 
 function max {
 	if [ "$1" -gt "$2" ]; then
@@ -409,6 +402,16 @@ function find_position_for_key {
 # AUTODOC 	-S|--snapdir 'snapdir'
 # AUTODOC 		use given snapshot_directory instead of default one ($HOME/.ssdb)
 # AUTODOC 		can also be configured with SSDB_SNAPDIR env option
+# AUTODOC 
+# AUTODOC 	-e|--encryption 'enckey'
+# AUTODOC 		use enryption key to encrypt and decrypt data
+# AUTODOC 		can also be configured with SSDB_ENCRYPTION_KEY env option
+# AUTODOC 		usage of encryption will add extra dependency: gpg
+# AUTODOC 
+# AUTODOC 	-r|--read-enryption
+# AUTODOC 		read enryption key from stdin
+# AUTODOC 		can also be configured with SSDB_ENCRYPTION_KEY env option
+# AUTODOC 		usage of encryption will add extra dependency: gpg
 # AUTODOC 
 # AUTODOC 	-d|--debug
 # AUTODOC 		use debug
@@ -837,6 +840,23 @@ while [[ $# -gt 0 ]]; do
 			break;;
 	esac
 done
+
+if [ "$CHECK_DEPENDENCIES" -ne 0 ]; then
+	for dep in "${DEPENDENCIES[@]}"; do
+		if ! type "$dep" 1>/dev/null 2>/dev/null; then
+			error "Unmet dependency: $dep"
+		fi
+	done
+
+	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
+		for dep in "${ENC_DEPENDENCIES[@]}"; do
+			if ! type "$dep" 1>/dev/null 2>/dev/null; then
+				error "Unmet dependency: $dep"
+			fi
+		done
+	fi
+fi
+
 
 GIVEN_COMMAND="${1:-}"
 
