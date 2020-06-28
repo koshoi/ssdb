@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'cmd_line_args'
+
+testres  "save_encrypted"             "OK"           "$ssdb" -e SECRETKEY s pass word
+testfail "get_without_key"                           "$ssdb" get pass
+testfail "get_with_incorrect_key"                    "$ssdb" -e WRONGKEY get pass
+testres  "get_with_correct_key"       "word"         "$ssdb" -e SECRETKEY get pass

@@ -7,6 +7,7 @@ SSDB_DEBUG="${SSDB_DEBUG:-}"
 
 SSDB_SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 SSDB_DATABASE="${SSDB_DATABASE:-default}"
+SSDB_ENCRYPTION_KEY="${SSDB_ENCRYPTION_KEY:-}"
 CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
@@ -105,6 +106,13 @@ function fsize {
 
 function format_value {
 	local value="$1"
+	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
+		local encrypted
+		encrypted=$(printf '%s' "$value" | gpg -c --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null | base64 -w 0)
+		printf 'format=enc %s' "$encrypted"
+		return 0
+	fi
+
 	if echo "$value" | grep -q '\s'; then
 		printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
 		return 0
@@ -468,7 +476,7 @@ function unlock {
 	local lock_type="${1+GLOBAL}"
 	local lockdir
 	lockdir=$(lock_name "$lock_type")
-	rmdir "$lockdir"
+	[ -d "$lockdir" ] && rmdir "$lockdir"
 	# debug "$lock_type lock removed"
 }
 
@@ -685,6 +693,15 @@ function run_get {
 		return 0
 	fi
 
+	if [ "$fmt" == 'enc' ]; then
+		if [ -z "$SSDB_ENCRYPTION_KEY" ]; then
+			error 'VALUE is encrypted, you should pass encryption-key using -e or -r options'
+		fi
+
+		printf '%s' "$(line2value "$line")" | base64 -d | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null
+		return 0
+	fi
+
 	error "Unknown fmt=$fmt"
 }
 
@@ -799,6 +816,19 @@ while [[ $# -gt 0 ]]; do
 			shift
 			shift
 			;;
+		-e|--encryption)
+			SSDB_ENCRYPTION_KEY="$2"
+			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
+			shift
+			shift
+			;;
+		-r|--read-encryption)
+			echo -n 'Enter passphrase: ' 1>&2
+			read -s enc_key;
+			SSDB_ENCRYPTION_KEY="$enc_key"
+			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
+			shift
+			;;
 		-d|--debug)
 			SSDB_DEBUG=1
 			shift
@@ -870,6 +900,7 @@ esac
 
 debug "COMMAND=$COMMAND KEY=$KEY VALUE=$VALUE"
 debug "SSDB_SNAPDIR=$SSDB_SNAPDIR"
+debug "SSDB_ENCRYPTION_KEY=$SSDB_ENCRYPTION_KEY"
 
 if [[ $# -gt 0 ]]; then
 	error 'extra params left, usage ssdb [OPTIONS] COMMAND ?ARG1 ?ARG2'
