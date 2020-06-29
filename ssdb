@@ -8,7 +8,7 @@ SSDB_DEBUG="${SSDB_DEBUG:-}"
 SSDB_SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 SSDB_DATABASE="${SSDB_DATABASE:-default}"
 SSDB_ENCRYPTION_KEY="${SSDB_ENCRYPTION_KEY:-}"
-SSDB_CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-0}"
+SSDB_CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-1}"
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
@@ -22,12 +22,39 @@ VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
-DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings)
+COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname)
+LINUX_DEPENDENCIES=(sed sort)
+MAC_DEPENDENCIES=(gsed gsort)
 ENC_DEPENDENCIES=(gpg)
+OS=$(uname -s)
+
 mkdir -p "$SSDB_SNAPDIR"
 
 function _echo {
 	printf '%s\n' "${1:-}"
+}
+
+function _base64 {
+	case "$OS" in
+		Dawrin)
+			base64;;
+		*)
+			base64 -w 0;;
+	esac
+	# base64 -w 0
+}
+
+function _sed {
+	case "$OS" in
+		Dawrin)
+			gsed "$@";;
+		*)
+			sed "$@";;
+	esac
+}
+
+function _sort {
+	LC_ALL=C LC_COLLATE=C sort -k 1,1
 }
 
 function _log_prefix {
@@ -106,13 +133,17 @@ function format_value {
 	local value="$1"
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
 		local encrypted
-		encrypted=$(printf '%s' "$value" | gpg -c --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null | base64 -w 0)
+		encrypted=$(printf '%s' "$value" | gpg -c --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null | _base64)
 		printf 'format=enc %s' "$encrypted"
 		return 0
 	fi
 
+	if [ -z "$value" ]; then
+		printf 'format=none'
+	fi
+
 	if _echo "$value" | grep -q '\s'; then
-		printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
+		printf 'format=b64 %s' "$(printf '%s' "$value" | _base64)"
 		return 0
 	fi
 
@@ -123,7 +154,7 @@ function format_value {
 		return 0
 	fi
 
-	printf 'format=b64 %s' "$(printf '%s' "$value" | base64 -w 0)"
+	printf 'format=b64 %s' "$(printf '%s' "$value" | _base64)"
 	return 0
 }
 
@@ -178,6 +209,10 @@ function seek4 {
 		else
 			nextpos=$(( pos + BUFSIZE ))
 			nextpos=$(min "$nextpos" "$size")
+		fi
+		debug "from=$pos nextpos=$nextpos"
+		if [ "$pos" -eq "$size" -o "$nextpos" -eq 0 ]; then
+			return 1
 		fi
 
 		local bytes
@@ -499,6 +534,14 @@ function _set_key {
 
 	local findres
 	local snapinprogress="$snap.ip"
+	# local linecnt
+	# if linecnt=$(_get_line_with_key "$key" 1); then
+	# 	if [ ! -z "$noreplace" ]; then
+	# 		debug "noreplace is set, can't update key value"
+	# 		printf "KEY_ALREADY_SET %s" "$linecnt"
+	# 		return 1
+	# 	fi
+	# fi
 
 	if findres=$(find_position_for_key "$snap" "$key"); then
 		findres=($findres)
@@ -647,20 +690,24 @@ function run_del {
 	return 0
 }
 
-# returns full line containing key
+# returns full line containing key or line count with key
 function _get_line_with_key {
 	local key="$1"
-	local no_value="${2-}"
+	local givecnt="${2-}"
 
 	local snap
 	snap=$(snap_name)
 
+	local cnt=0
 	while read -r line; do
-		debug "[get] scanning for '$key' no_value=$no_value, line='$line'"
+		cnt=$(( cnt + 1 ))
+		debug "[get] scanning for '$key' givecnt=$givecnt, line='$line'"
 		if [ "$(line2key "$line")" == "$key" ]; then
 			debug "FOUND $line"
-			if [ -z "$no_value" ]; then
+			if [ -z "$givecnt" ]; then
 				printf '%s' "$line"
+			else
+				printf '%d' "$cnt"
 			fi
 			return 0
 		fi
@@ -691,27 +738,24 @@ function run_get {
 
 	local fmt
 	fmt=$(line2meta "$line" 'format')
-	if [ "$fmt" == 'raw' ]; then
-		printf '%s' "$(line2value "$line")"
-		return 0
-	fi
+	case "$fmt" in
+		raw)
+			printf '%s' "$(line2value "$line")"
+			return 0;;
+		b64)
+			printf '%s' "$(line2value "$line")" | base64 --decode
+			return 0;;
+		enc)
+			if [ -z "$SSDB_ENCRYPTION_KEY" ]; then
+				printf 'VALUE is encrypted, you should pass encryption-key using -e or -r options'
+				return 1
+			fi
 
-	if [ "$fmt" == 'b64' ]; then
-		printf '%s' "$(line2value "$line")" | base64 -d
-		return 0
-	fi
-
-	if [ "$fmt" == 'enc' ]; then
-		if [ -z "$SSDB_ENCRYPTION_KEY" ]; then
-			printf 'VALUE is encrypted, you should pass encryption-key using -e or -r options'
-			return 1
-		fi
-
-		printf '%s' "$(line2value "$line")" | base64 -d | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null
-		return 0
-	fi
-
-	error "Unknown fmt=$fmt"
+			printf '%s' "$(line2value "$line")" | base64 --decode | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null
+			return 0;;
+		*)
+			error "Unknown fmt=$fmt";;
+	esac
 }
 
 # AUTODOC 
@@ -723,7 +767,7 @@ function run_check {
 	lock GLOBAL
 
 	debug "run_check $1"
-	if _get_line_with_key "$1" 1; then
+	if _get_line_with_key "$1" 1 1>/dev/null; then
 		unlock GLOBAL
 		debug "Key present"
 		return 0
@@ -808,11 +852,26 @@ function run_truncate {
 # AUTODOC ssdb dep|depcheck
 # AUTODOC 	checks external dependecies
 function check_dependencies {
-	for dep in "${DEPENDENCIES[@]}"; do
+	for dep in "${COMMON_DEPENDENCIES[@]}"; do
 		if ! type "$dep" 1>/dev/null 2>/dev/null; then
 			error "Unmet dependency: $dep"
 		fi
 	done
+
+	case "$OS" in
+		Darwin*)
+			for dep in "${MAC_DEPENDENCIES[@]}"; do
+				if ! type "$dep" 1>/dev/null 2>/dev/null; then
+					error "Unmet dependency: $dep"
+				fi
+			done;;
+		*)
+			for dep in "${LINUX_DEPENDENCIES[@]}"; do
+				if ! type "$dep" 1>/dev/null 2>/dev/null; then
+					error "Unmet dependency: $dep"
+				fi
+			done;;
+	esac
 
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
 		for dep in "${ENC_DEPENDENCIES[@]}"; do
