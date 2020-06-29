@@ -39,7 +39,7 @@ function testres {
 	shift
 	shift
 	local result
-	if result=$("$@" 2>/dev/null); then
+	if result=$("$@"); then
 		if [ "$result" == "$expected_output" ]; then
 			printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"
 		else
@@ -60,7 +60,7 @@ function testok {
 	local tname="$1"
 	shift
 	local result
-	if result=$("$@" 2>/dev/null); then
+	if result=$("$@"); then
 		printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"
 	else
 		printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
@@ -74,7 +74,7 @@ function testfail {
 	tname="$1"
 	shift
 	local result
-	if result=$("$@" 2>/dev/null); then
+	if result=$("$@"); then
 		printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
 		printf '\t\tGot: %s\n' "$result"
 		printf '\t\tExpected to fail\n'

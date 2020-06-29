@@ -703,7 +703,8 @@ function run_get {
 
 	if [ "$fmt" == 'enc' ]; then
 		if [ -z "$SSDB_ENCRYPTION_KEY" ]; then
-			error 'VALUE is encrypted, you should pass encryption-key using -e or -r options'
+			printf 'VALUE is encrypted, you should pass encryption-key using -e or -r options'
+			return 1
 		fi
 
 		printf '%s' "$(line2value "$line")" | base64 -d | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null

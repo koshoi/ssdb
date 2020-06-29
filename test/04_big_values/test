@@ -11,12 +11,12 @@ listres=$(echo -e "a\nb\nc")
 bigvalue='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
 testres  "list_empty_snapshot" "$listres"             "$ssdb" list
-testres  "get_small_value"     "a"                    ssdb get a
-testres  "get_big_value"       "$bigvalue"            ssdb get b
-testres  "get_small_value:2"   "c"                    ssdb get c
-testres  "set_big_value"       "OK"                   ssdb set a "$bigvalue"
-testres  "get_big_value:2"     "$bigvalue"            ssdb get a
-testres  "set_big_value:2"     "OK"                   ssdb set c "$bigvalue"
-testres  "get_big_value:3"     "$bigvalue"            ssdb get c
-testres  "big_value_to_small"  "OK"                   ssdb set b b
-testres  "get_small_value"     "b"                    ssdb get b
+testres  "get_small_value"     "a"                    "$ssdb" get a
+testres  "get_big_value"       "$bigvalue"            "$ssdb" get b
+testres  "get_small_value:2"   "c"                    "$ssdb" get c
+testres  "set_big_value"       "OK"                   "$ssdb" set a "$bigvalue"
+testres  "get_big_value:2"     "$bigvalue"            "$ssdb" get a
+testres  "set_big_value:2"     "OK"                   "$ssdb" set c "$bigvalue"
+testres  "get_big_value:3"     "$bigvalue"            "$ssdb" get c
+testres  "big_value_to_small"  "OK"                   "$ssdb" set b b
+testres  "get_small_value"     "b"                    "$ssdb" get b
