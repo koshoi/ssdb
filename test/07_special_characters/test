@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'special_characters'
+
+testres  "set_empty_value"    'OK' "$ssdb" s 'empty_key' ''
+testok   "check_empty_value"       "$ssdb" c 'empty_key'
+testres  "get_empty_value"    ''   "$ssdb" g 'empty_key'
+testres  "delete_empty_value" 'OK' "$ssdb" d 'empty_key'
+testfail "deleted_empty_value"     "$ssdb" c 'empty_key'
+
+special_chars=( \! @ \# $ % ^ \& \* \( \) - _ = + \[ \{ \] \} \\ \| / \> \. \< ',' \' \" \; : )
+
+for char in "${special_chars[@]}"; do
+	testres "set_special_char($char)" 'OK' "$ssdb" s "key_$char" "value_$char"
+done
+
+for char in "${special_chars[@]}"; do
+	testres "get_special_char($char)" "value_$char" "$ssdb" g "key_$char" 
+done
+
+for char in "${special_chars[@]}"; do
+	testok   "check_special_char($char)"        "$ssdb" c "key_$char"
+	testres  "delete_special_char($char)" 'OK'  "$ssdb" d "key_$char"
+	testfail "deleted_special_char($char)"      "$ssdb" c "key_$char"
+done

@@ -3,8 +3,9 @@
 set -euo pipefail
 
 export SSDB_DEBUG=
-export SSDB_SNAPDIR="$1"
 export BAIL_ON_FAIL=
+
+export SSDB_SNAPDIR="$1"
 ssdb="$2"
 export TEST_NAME="${3:-TEST}"
 
@@ -43,15 +44,15 @@ function testres {
 		if [ "$result" == "$expected_output" ]; then
 			printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"
 		else
-			printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
-			printf '\t\tGot: %s\n' "$result"
-			printf '\t\tExpected: %s\n' "$expected_output"
+			printf "\tFailed: %s:%s\n" "$TEST_NAME" "$tname"
+			printf "\t\tGot: '%s'\n" "$result"
+			printf "\t\tExpected: '%s'\n" "$expected_output"
 			maybe_bail
 		fi
 	else
-		printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
-		printf '\t\tGot failure: %s\n' "$result"
-		printf '\t\tExpected: %s\n' "$expected_output"
+		printf "\tFailed: %s:%s\n" "$TEST_NAME" "$tname"
+		printf "\t\tGot failure: '%s'\n" "$result"
+		printf "\t\tExpected: '%s'\n" "$expected_output"
 		maybe_bail
 	fi
 }
@@ -63,9 +64,9 @@ function testok {
 	if result=$("$@"); then
 		printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"
 	else
-		printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
-		printf '\t\tGot failure: %s\n' "$result"
-		printf '\t\tExpected Ok\n'
+		printf "\tFailed: %s:%s\n" "$TEST_NAME" "$tname"
+		printf "\t\tGot failure: '%s'\n" "$result"
+		printf "\t\tExpected Ok\n"
 		maybe_bail
 	fi
 }
@@ -75,9 +76,9 @@ function testfail {
 	shift
 	local result
 	if result=$("$@"); then
-		printf '\tFailed: %s:%s\n' "$TEST_NAME" "$tname"
-		printf '\t\tGot: %s\n' "$result"
-		printf '\t\tExpected to fail\n'
+		printf "\tFailed: %s:%s\n" "$TEST_NAME" "$tname"
+		printf "\t\tGot: '%s'\n" "$result"
+		printf "\t\tExpected to fail\n"
 		maybe_bail
 	else
 		printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"

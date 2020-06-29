@@ -53,8 +53,12 @@ function _sed {
 	esac
 }
 
+function _escape {
+	echo "$1" | _sed 's/[^a-zA-Z 0-9]/\\&/g'
+}
+
 function _sort {
-	LC_ALL=C LC_COLLATE=C sort -k 1,1
+	LC_ALL=C LC_COLLATE=C sort "$@"
 }
 
 function _log_prefix {
@@ -140,6 +144,7 @@ function format_value {
 
 	if [ -z "$value" ]; then
 		printf 'format=none'
+		return 0
 	fi
 
 	if _echo "$value" | grep -q '\s'; then
@@ -430,56 +435,66 @@ function find_position_for_key {
 # PREAMBLE 'How we, gentelmen, should write to this file called snapshot so it keeps being adequate'
 # PREAMBLE 
 # PREAMBLE The syntax is simple
-# AUTODOC 
-# AUTODOC ssdb [OPTIONS] COMMAND KEY ?VALUE
-# AUTODOC 
-# AUTODOC configurable options are
-# AUTODOC 
-# AUTODOC 	-D|--database|--db 'dbname'
-# AUTODOC 		use given database instead of default one ('default')
-# AUTODOC 		can also be configured with SSDB_DATABASE env option
-# AUTODOC 
-# AUTODOC 	-S|--snapdir 'snapdir'
-# AUTODOC 		use given snapshot_directory instead of default one ($HOME/.ssdb)
-# AUTODOC 		can also be configured with SSDB_SNAPDIR env option
-# AUTODOC 
-# AUTODOC 	-e|--encryption 'enckey'
-# AUTODOC 		use enryption key to encrypt and decrypt data
-# AUTODOC 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC 		usage of encryption will add extra dependency: gpg
-# AUTODOC 
-# AUTODOC 	-r|--read-enryption
-# AUTODOC 		read enryption key from stdin
-# AUTODOC 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC 		usage of encryption will add extra dependency: gpg
-# AUTODOC 
-# AUTODOC 	-d|--debug
-# AUTODOC 		use debug
-# AUTODOC 		can also be configured with SSDB_DEBUG env option
-# AUTODOC 
-# AUTODOC almost every command has a shorter version for comfortable usage in console
-# AUTODOC 
-# AUTODOC As for now KEY can't contain any whitespaces, special characters and binary shit
-# AUTODOC Because this is DB for gentlemen, and gentlemen are not going to use that symbols, not to spoil the fun for other gentlemen
-# AUTODOC I guess I will check for whitespaces easily, not so easy for binary shit
-# AUTODOC 
-# AUTODOC However VALUE can contain any of that
-# AUTODOC 
-# AUTODOC 
-# AUTODOC ssdb help
-# AUTODOC ssdb h
-# AUTODOC 	prints this help
+# AUTODOC common 
+# AUTODOC common ssdb [OPTIONS] COMMAND KEY ?VALUE
+# AUTODOC common 
+# AUTODOC common configurable options are
+# AUTODOC common 
+# AUTODOC common 	-D|--database|--db 'dbname'
+# AUTODOC common 		use given database instead of default one ('default')
+# AUTODOC common 		can also be configured with SSDB_DATABASE env option
+# AUTODOC common 
+# AUTODOC common 	-S|--snapdir 'snapdir'
+# AUTODOC common 		use given snapshot_directory instead of default one ($HOME/.ssdb)
+# AUTODOC common 		can also be configured with SSDB_SNAPDIR env option
+# AUTODOC common 
+# AUTODOC common 	-e|--encryption 'enckey'
+# AUTODOC common 		use enryption key to encrypt and decrypt data
+# AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
+# AUTODOC common 		usage of encryption will add extra dependency: gpg
+# AUTODOC common 
+# AUTODOC common 	-r|--read-enryption
+# AUTODOC common 		read enryption key from stdin
+# AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
+# AUTODOC common 		usage of encryption will add extra dependency: gpg
+# AUTODOC common 
+# AUTODOC common 	-d|--debug
+# AUTODOC common 		use debug
+# AUTODOC common 		can also be configured with SSDB_DEBUG env option
+# AUTODOC common 
+# AUTODOC common almost every command has a shorter version for comfortable usage in console
+# AUTODOC common 
+# AUTODOC common As for now KEY can't contain any whitespaces, special characters and binary shit
+# AUTODOC common Because this is DB for gentlemen, and gentlemen are not going to use that symbols, not to spoil the fun for other gentlemen
+# AUTODOC common I guess I will check for whitespaces easily, not so easy for binary shit
+# AUTODOC common 
+# AUTODOC common However VALUE can contain any of that
+# AUTODOC common 
+# AUTODOC common 
+# AUTODOC help ssdb help [COMMAND]
+# AUTODOC help ssdb h
+# AUTODOC help 	prints this help
+# AUTODOC help 	if COMMAND is given, it prints only help for specific COMMAND
+# AUTODOC help 	COMMAND should be full ('ssdb help delete' will work, but 'ssdb help d' will not)
 # MILESTONES 
 # MILESTONES Roadmaps are
 # MILESTONES 	1) Subscribe on any changes to the key
 # MILESTONES 	2) Subscribe on any changes to the key that matches the wildcard 
 # MILESTONES 	3) Replication)))
 # MILESTONES 	4) More data structures (like sets, lists and maybe something else)
-# MILESTONES 	5) More than single database
+# MILESTONES 	5) More than single database (done, --database flag)
 function print_help {
-	for tag in PREAMBLE AUTODOC MILESTONES; do
-		grep "^# $tag" "$0" | sed "s/^# $tag //g"
-	done
+	helpfor="${1:-}"
+	if [ -z "$helpfor" ]; then
+		grep '^# PREAMBLE' "$0" | _sed "s/^# PREAMBLE //g"
+		grep '^# AUTODOC' "$0" | _sed -e "s/^# AUTODOC \w* //g"
+		grep '^# MILESTONES' "$0" | _sed -e "s/^# MILESTONES //g"
+	# for tag in PREAMBLE AUTODOC MILESTONES; do
+	# 	grep "^# $tag" "$0" | _sed "s/^# $tag //g"
+	# done
+	else
+		grep "^# AUTODOC $helpfor" "$0" | _sed -e "s/^# AUTODOC \w* //g"
+	fi
 }
 
 function lock_name {
@@ -529,63 +544,35 @@ function _set_key {
 	local noreplace="${3:-}"
 
 	value=$(format_value "$value")
+	local insert_str="$key $value"
 	local snap
 	snap=$(snap_name)
 
-	local findres
-	local snapinprogress="$snap.ip"
-	# local linecnt
-	# if linecnt=$(_get_line_with_key "$key" 1); then
-	# 	if [ ! -z "$noreplace" ]; then
-	# 		debug "noreplace is set, can't update key value"
-	# 		printf "KEY_ALREADY_SET %s" "$linecnt"
-	# 		return 1
-	# 	fi
-	# fi
-
-	if findres=$(find_position_for_key "$snap" "$key"); then
-		findres=($findres)
-		local postype="${findres[0]}"
-		local pos="${findres[1]}"
-		if [ "$postype" == "APPEND" ]; then
-			debug "appending key=$key at position=$pos"
-			if [ "$pos" -eq 0 ]; then
-				_echo "$key $value" > "$snapinprogress"
-				cat "$snap" >> "$snapinprogress"
-			else
-				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
-				_echo "$key $value" >> "$snapinprogress"
-				tail -c "+$(( pos + 2 ))" "$snap" >> "$snapinprogress"
-			fi
-		else
-			debug "found key=$key at position=$pos"
-			local nextcr
-			nextcr=$(seek4 "$snap" "$(( pos + 1 ))" "$CR")
-			debug "nextcr=$nextcr"
-			if [ ! -z "$noreplace" ]; then
-				debug "noreplace is set, can't update key value"
-				printf "KEY_ALREADY_SET"
-				return 1
-			fi
-			if [ "$pos" -ne 0 ]; then
-				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
-			fi
-			_echo "$key $value" >> "$snapinprogress"
-			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
+	local linecnt
+	if linecnt=$(_get_line_with_key "$key" 1); then
+		if [ ! -z "$noreplace" ]; then
+			debug "noreplace is set, can't update key value"
+			printf "KEY_ALREADY_SET"
+			return 1
 		fi
-		debug "SET FR0=${findres[0]} FR1=${findres[1]}"
-	else
-		error "failed to find position for key=$key"
+
+		local escaped
+		escaped=$(_escape "$insert_str")
+		debug "_sed -i \"$snap\" -e \"${linecnt}s/.*/$escaped/\""
+		_sed -i "$snap" -e "${linecnt}s/.*/$escaped/"
+		return 0
 	fi
 
-	mv -f "$snapinprogress" "$snap"
+	_echo "$insert_str" >> "$snap"
+	_sort -k 1,1 -o "$snap" "$snap"
+	return 0
 }
 
-# AUTODOC 
-# AUTODOC ssdb set KEY VALUE
-# AUTODOC ssdb s   KEY VALUE
-# AUTODOC 	it sets a KEY to a VALUE
-# AUTODOC 	if the KEY was already present it overrides it
+# AUTODOC common 
+# AUTODOC set ssdb set KEY VALUE
+# AUTODOC set ssdb s   KEY VALUE
+# AUTODOC set 	it sets a KEY to a VALUE
+# AUTODOC set 	if the KEY was already present it overrides it
 function run_set {
 	lock GLOBAL
 	debug "run_set $1 '$2'"
@@ -606,11 +593,11 @@ function run_set {
 	return 0
 }
 
-# AUTODOC 
-# AUTODOC ssdb add KEY VALUE
-# AUTODOC ssdb a   KEY VALUE
-# AUTODOC 	it add a new KEY to a VALUE
-# AUTODOC 	if the KEY was already present it exits with error
+# AUTODOC common 
+# AUTODOC add ssdb add KEY VALUE
+# AUTODOC add ssdb a   KEY VALUE
+# AUTODOC add 	it add a new KEY to a VALUE
+# AUTODOC add 	if the KEY was already present it exits with error
 function run_add {
 	lock GLOBAL
 	debug "run_set $1 '$2'"
@@ -636,41 +623,21 @@ function _delete_key {
 	local snap
 	snap=$(snap_name)
 
-	local findres
-	local snapinprogress="$snap.ip"
-
-	if findres=$(find_position_for_key "$snap" "$key"); then
-		findres=($findres)
-		local postype="${findres[0]}"
-		local pos="${findres[1]}"
-		if [ "$postype" == "APPEND" ]; then
-			return 1
-		else
-			debug "found key=$key at position=$pos"
-			local line
-			line=$(get_line "$snap" "$pos")
-			local nextcr
-			nextcr=$(seek4 "$snap" "$(( pos + 1 ))" "$CR")
-			debug "nextcr=$nextcr"
-			if [ "$pos" -ne 0 ]; then
-				head -c "$(( pos + 1 ))" "$snap" > "$snapinprogress"
-			fi
-			tail -c "+$(( nextcr + 2 ))" "$snap" >> "$snapinprogress"
-		fi
-		debug "SET FR0=${findres[0]} FR1=${findres[1]}"
-	else
-		error "failed to find position for key=$key"
+	local linecnt
+	if linecnt=$(_get_line_with_key "$key" 1); then
+		_sed -i "$snap" -e "${linecnt}d"
+		return 0
 	fi
 
-	mv -f "$snapinprogress" "$snap"
+	return 1
 }
 
-# AUTODOC 
-# AUTODOC ssdb delete KEY
-# AUTODOC ssdb del    KEY
-# AUTODOC ssdb d      KEY
-# AUTODOC 	it deletes a KEY from ssdb
-# AUTODOC 	if the KEY was not found it exits with error
+# AUTODOC common 
+# AUTODOC delete ssdb delete KEY
+# AUTODOC delete ssdb del    KEY
+# AUTODOC delete ssdb d      KEY
+# AUTODOC delete 	it deletes a KEY from ssdb
+# AUTODOC delete 	if the KEY was not found it exits with error
 function run_del {
 	lock GLOBAL
 
@@ -693,7 +660,7 @@ function run_del {
 # returns full line containing key or line count with key
 function _get_line_with_key {
 	local key="$1"
-	local givecnt="${2-}"
+	local givecnt="${2:-}"
 
 	local snap
 	snap=$(snap_name)
@@ -715,11 +682,11 @@ function _get_line_with_key {
 	return 1
 }
 
-# AUTODOC 
-# AUTODOC ssdb get KEY
-# AUTODOC ssdb g   KEY
-# AUTODOC 	it returns a VALUE that stands for KEY in ssdb
-# AUTODOC 	if the KEY was not found it exits with error
+# AUTODOC common 
+# AUTODOC get ssdb get KEY
+# AUTODOC get ssdb g   KEY
+# AUTODOC get 	it returns a VALUE that stands for KEY in ssdb
+# AUTODOC get 	if the KEY was not found it exits with error
 function run_get {
 	lock GLOBAL
 
@@ -753,16 +720,19 @@ function run_get {
 
 			printf '%s' "$(line2value "$line")" | base64 --decode | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null
 			return 0;;
+		none)
+			printf ''
+			return 0;;
 		*)
 			error "Unknown fmt=$fmt";;
 	esac
 }
 
-# AUTODOC 
-# AUTODOC ssdb check KEY
-# AUTODOC ssdb c   KEY
-# AUTODOC 	it exits with 0 if KEY is present in ssdb
-# AUTODOC 	if the KEY was not found it exits with error
+# AUTODOC common 
+# AUTODOC check ssdb check KEY
+# AUTODOC check ssdb c   KEY
+# AUTODOC check 	it exits with 0 if KEY is present in ssdb
+# AUTODOC check 	if the KEY was not found it exits with error
 function run_check {
 	lock GLOBAL
 
@@ -786,10 +756,10 @@ function _list_keys {
 	sed 's/ .*//' "$snap"
 }
 
-# AUTODOC 
-# AUTODOC ssdb list
-# AUTODOC ssdb l
-# AUTODOC 	returns sorted list of keys in ssdb
+# AUTODOC common 
+# AUTODOC list ssdb list
+# AUTODOC list ssdb l
+# AUTODOC list 	returns sorted list of keys in ssdb
 function run_list {
 	lock GLOBAL
 
@@ -808,9 +778,9 @@ function run_list {
 }
 
 
-# AUTODOC 
-# AUTODOC ssdb snap
-# AUTODOC 	returns snapshot as is (can be used for backup needs)
+# AUTODOC common 
+# AUTODOC snap ssdb snap
+# AUTODOC snap 	returns snapshot as is (can be used for backup needs)
 function run_snap {
 	lock GLOBAL
 
@@ -821,9 +791,9 @@ function run_snap {
 	unlock GLOBAL
 }
 
-# AUTODOC 
-# AUTODOC ssdb bindump
-# AUTODOC 	returns binary dumped snapshot (for debug puposes)
+# AUTODOC common 
+# AUTODOC bindump ssdb bindump
+# AUTODOC bindump 	returns binary dumped snapshot (for debug puposes)
 function run_bindump {
 	lock GLOBAL
 
@@ -835,9 +805,9 @@ function run_bindump {
 	unlock GLOBAL
 }
 
-# AUTODOC 
-# AUTODOC ssdb truncate
-# AUTODOC 	deletes everything from ssdb
+# AUTODOC common 
+# AUTODOC truncate ssdb truncate
+# AUTODOC truncate 	deletes everything from ssdb
 function run_truncate {
 	lock GLOBAL
 
@@ -848,9 +818,9 @@ function run_truncate {
 	unlock GLOBAL
 }
 
-# AUTODOC 
-# AUTODOC ssdb dep|depcheck
-# AUTODOC 	checks external dependecies
+# AUTODOC common 
+# AUTODOC depcheck ssdb dep|depcheck
+# AUTODOC depcheck 	checks external dependecies
 function check_dependencies {
 	for dep in "${COMMON_DEPENDENCIES[@]}"; do
 		if ! type "$dep" 1>/dev/null 2>/dev/null; then
@@ -985,7 +955,14 @@ case "$GIVEN_COMMAND" in
 		shift;;
 	h|help)
 		COMMAND="help"
-		shift;;
+		shift
+		if [[ $# -eq 1 ]]; then
+			KEY="$1";
+			shift
+		else
+			KEY=""
+		fi
+		;;
 	'')
 		error "No command given, consider running 'ssdb help'";;
 	*)
@@ -1020,7 +997,7 @@ case "$COMMAND" in
 	truncate)
 		run_truncate;;
 	help)
-		print_help;;
+		print_help "$KEY";;
 	depcheck)
 		check_dependencies;;
 	*)
