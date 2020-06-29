@@ -13,18 +13,13 @@ DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
 
-CR="10"
-BUFSIZE=1024
-
 KEY_POSITION=0
 META_POSITION=1
 VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
-COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname)
-LINUX_DEPENDENCIES=(sed sort)
-MAC_DEPENDENCIES=(gsed gsort)
+COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname sed sort)
 ENC_DEPENDENCIES=(gpg)
 OS=$(uname -s)
 
@@ -47,7 +42,27 @@ function _base64 {
 function _sed {
 	case "$OS" in
 		Dawrin)
-			gsed "$@";;
+			local sed_args=()
+			local inplace=''
+			while [[ $# -gt 0 ]]; do
+				arg="$1"
+				debug "sedARG=$arg"
+				if [ "$arg" == '-i' ]; then
+					inplace="$2"
+					shift
+				else
+					sed_args+=("$1")
+				fi
+				shift
+			done
+
+			if [ -z "$inplace" ]; then
+				sed "${sed_args[@]}"
+			else
+				local newfile="${inplace}.inplace"
+				sed "${sed_args[@]}" <"$inplace" > "$newfile"
+				mv -f "$newfile" "$inplace"
+			fi;;
 		*)
 			sed "$@";;
 	esac
@@ -99,40 +114,6 @@ function error {
 	exit 127
 }
 
-function max {
-	if [ "$1" -gt "$2" ]; then
-		_echo "$1"
-	else
-		_echo "$2"
-	fi
-}
-
-function min {
-	if [ "$1" -lt "$2" ]; then
-		_echo "$1"
-	else
-		_echo "$2"
-	fi
-}
-
-function half {
-	local from
-	local to
-	local len
-	from=$(max "$1" "$2")
-	to=$(min "$1" "$2")
-	len=$(( to - from ))
-	_echo $(( from + len / 2 ))
-}
-
-function fsize {
-	local f="$1"
-	local size
-	size=$(wc -c "$f")
-	size=($size)
-	_echo "${size[0]}"
-}
-
 function format_value {
 	local value="$1"
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
@@ -160,92 +141,6 @@ function format_value {
 	fi
 
 	printf 'format=b64 %s' "$(printf '%s' "$value" | _base64)"
-	return 0
-}
-
-function get_bytes {
-	local file="$1"
-	local from="$2"
-	local to="$3"
-
-	local len
-	len=$(( to - from ))
-
-	#debug "$(hexdump -ve '1/1 "(%_ad:%02d:"' -e '1/1 "%_c) "' -s "$from" -n "$len" "$file")"
-
-	# https://brendanzagaeski.appspot.com/0006.html
-	#
-	#  no default trash
-	#        |
-	#        v
-	hexdump -ve '1/1 "%02d "' -s "$from" -n "$len" "$file"
-	#            ^
-	#            |
-	#    1 byte by 1 byte
-}
-
-function get_line {
-	local file="$1"
-	local from="$2"
-
-	if [ "$from" -eq 0 ]; then
-		head -n 1 "$file"
-	else
-		tail -c "$(( $(fsize "$file") - from - 1 ))" "$file" | head -n 1
-	fi
-}
-
-function seek4 {
-	local file="$1"
-	local pos="$2"
-	local byte="$3"
-	local direction="${4:-1}"
-
-	debug "seek4: file='$file' from=$pos byte=$byte direction=$direction"
-	local size
-	size=$(fsize "$file")
-	local nextpos="$pos"
-
-	local found=''
-	until [ ! -z "$found" ]; do
-		if [ "$direction" -lt 0 ]; then
-			pos=$(( pos - BUFSIZE ))
-			pos=$(max 0 "$pos")
-		else
-			nextpos=$(( pos + BUFSIZE ))
-			nextpos=$(min "$nextpos" "$size")
-		fi
-		debug "from=$pos nextpos=$nextpos"
-		if [ "$pos" -eq "$size" -o "$nextpos" -eq 0 ]; then
-			return 1
-		fi
-
-		local bytes
-		bytes=($(get_bytes "$file" "$pos" "$nextpos"))
-
-		local cnt=0
-		local seek=0
-		local len="${#bytes[@]}"
-		[ "$direction" -lt 0 ] && seek=$(( len - 1 ))
-
-		until [ "$cnt" -eq "$len" ]; do
-			cnt=$(( cnt + 1 ))
-			local b="${bytes[$seek]}"
-			if [ "$b" == "$byte" ]; then
-				found=$(( pos + seek ))
-				break
-			fi
-			seek=$(( seek + direction ))
-		done
-
-		if [ "$direction" -lt 0 ]; then
-			nextpos="$pos"
-		else
-			pos="$nextpos"
-		fi
-	done
-
-	_echo "$found"
 	return 0
 }
 
@@ -304,112 +199,6 @@ function line2value {
 	_echo "${larr[$VALUE_POSITION]}"
 }
 
-# returns A, B
-# A is one of KEYFOUND, APPEND
-# B is position where the key should be
-function find_position_for_key {
-	local file="$1"
-	local key="$2"
-
-	local startpos=0
-	local endpos
-	endpos=$(( $(fsize "$file") - 1 ))
-
-	if [ "$endpos" -eq 0 -o "$endpos" -eq -1 ]; then
-		_echo "APPEND 0"
-		return 0
-	fi
-
-	local firstkey
-	firstkey=$(line2key "$(head -n 1 "$file")")
-	if [[ "$key" < "$firstkey" ]]; then
-		_echo "APPEND 0"
-		return 0
-	fi
-
-	if [ "$key" == "$firstkey" ]; then
-		_echo "KEYFOUND 0"
-		return 0
-	fi
-
-	local lastkey
-	lastkey=$(line2key "$(tail -n 1 "$file")")
-	if [[ "$key" > "$lastkey" ]]; then
-		_echo "APPEND $endpos"
-		return 0
-	fi
-
-	if [ "$key" == "$lastkey" ]; then
-		_echo "KEYFOUND $(seek4 "$file" "$endpos" "$CR" -1)"
-		return 0
-	fi
-
-	local loopcnt=0
-	local maxloop=1000
-
-	while [ "$startpos" -ne "$endpos" ]; do
-		loopcnt=$(( loopcnt + 1 ))
-		local pfx="lc=$loopcnt sp=$startpos ep=$endpos key=$key"
-		debug "$pfx"
-		if [ "$loopcnt" -gt "$maxloop" ]; then
-			error "to many loops"
-		fi
-
-		pos=$(half "$startpos" "$endpos")
-		debug "$pfx pos=$pos"
-
-		local foundr
-		local foundl
-		foundr=$(seek4 "$file" "$pos" "$CR"  1)
-		foundl=$(seek4 "$file" "$pos" "$CR" -1)
-
-		debug "fl=$foundl fr=$foundr"
-
-		local linel
-		local liner
-		linel=$(get_line "$file" "$foundl")
-		liner=$(get_line "$file" "$foundr")
-		debug "$pfx ll=$linel"
-		debug "$pfx lr=$liner"
-
-		local rkey
-		local lkey
-		rkey=$(line2key "$liner")
-		lkey=$(line2key "$linel")
-
-		if [ "$lkey" == "$key" ]; then
-			debug "LEFTFOUND AT POSITION=$foundl, line=$linel"
-			_echo "KEYFOUND $foundl"
-			return 0
-		fi
-
-		if [ "$rkey" == "$key" ]; then
-			debug "RIGHTFTFOUND AT POSITION=$foundr, line=$liner"
-			_echo "KEYFOUND $foundr"
-			return 0
-		fi
-
-		if [[ "$key" > "$rkey" ]]; then
-			debug "[lr] $pfx [$lkey $key $rkey] setting sp=$foundr"
-			startpos="$foundr"
-		else
-			if [[ "$key" < "$lkey" ]]; then
-				debug "[ll] $pfx [$lkey $key $rkey] setting ep=$foundl"
-				endpos="$foundl"
-			else
-				debug "BETWEEN [$lkey $key $rkey]"
-				_echo "APPEND $foundr"
-				exit 0
-			fi
-		fi
-	done
-
-	# this should not happen
-	debug "sp=$startpos ep=$endpos"
-	exit 1
-}
-
-
 # PREAMBLE Welcome to
 # PREAMBLE 
 # PREAMBLE    __________ ____  ____
@@ -423,7 +212,7 @@ function find_position_for_key {
 # PREAMBLE The main concept of this 'DataBase' is
 # PREAMBLE 	1) Being serverless
 # PREAMBLE 	2) Being written in bash
-# PREAMBLE 	3) Beign written in as clean bash as possible (OK, I fucked it up when I added the dirtiest binary search possible)
+# PREAMBLE 	3) Being written in as clean bash as possible (OK, I fucked it up when I added the dirtiest binary search possible (removed it, LOL))
 # PREAMBLE 	4) Being written in single bash file
 # PREAMBLE 	5) Having a snapshot that can be easily fixed in vim if needed
 # PREAMBLE 	6) Having some sort of isolation, but not necessary
@@ -487,13 +276,10 @@ function print_help {
 	helpfor="${1:-}"
 	if [ -z "$helpfor" ]; then
 		grep '^# PREAMBLE' "$0" | _sed "s/^# PREAMBLE //g"
-		grep '^# AUTODOC' "$0" | _sed -e "s/^# AUTODOC \w* //g"
+		grep '^# AUTODOC' ssdb | _sed -e "s/^# AUTODOC [^ ]* //g"
 		grep '^# MILESTONES' "$0" | _sed -e "s/^# MILESTONES //g"
-	# for tag in PREAMBLE AUTODOC MILESTONES; do
-	# 	grep "^# $tag" "$0" | _sed "s/^# $tag //g"
-	# done
 	else
-		grep "^# AUTODOC $helpfor" "$0" | _sed -e "s/^# AUTODOC \w* //g"
+		grep "^# AUTODOC $helpfor" "$0" | _sed -e "s/^# AUTODOC [^ ]* //g"
 	fi
 }
 
@@ -827,21 +613,6 @@ function check_dependencies {
 			error "Unmet dependency: $dep"
 		fi
 	done
-
-	case "$OS" in
-		Darwin*)
-			for dep in "${MAC_DEPENDENCIES[@]}"; do
-				if ! type "$dep" 1>/dev/null 2>/dev/null; then
-					error "Unmet dependency: $dep"
-				fi
-			done;;
-		*)
-			for dep in "${LINUX_DEPENDENCIES[@]}"; do
-				if ! type "$dep" 1>/dev/null 2>/dev/null; then
-					error "Unmet dependency: $dep"
-				fi
-			done;;
-	esac
 
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
 		for dep in "${ENC_DEPENDENCIES[@]}"; do
