@@ -20,7 +20,7 @@ VALUE_POSITION=2
 TAKEN_LOCKS=()
 
 COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname sed sort)
-ENC_DEPENDENCIES=(gpg)
+ENC_DEPENDENCIES=(openssl)
 OS=$(uname -s)
 
 mkdir -p "$SSDB_SNAPDIR"
@@ -76,6 +76,14 @@ function _sort {
 	LC_ALL=C LC_COLLATE=C sort "$@"
 }
 
+function _encrypt {
+	openssl enc -e -k "$1" -aes256 2>/dev/null
+}
+
+function _decrypt {
+	openssl enc -d -k "$1" -aes256 2>/dev/null
+}
+
 function _log_prefix {
 	local level="$1"
 	local _caller
@@ -118,7 +126,7 @@ function format_value {
 	local value="$1"
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
 		local encrypted
-		encrypted=$(printf '%s' "$value" | gpg -c --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null | _base64)
+		encrypted=$(printf '%s' "$value" | _encrypt "$SSDB_ENCRYPTION_KEY" | _base64)
 		printf 'format=enc %s' "$encrypted"
 		return 0
 	fi
@@ -240,12 +248,12 @@ function line2value {
 # AUTODOC common 	-e|--encryption 'enckey'
 # AUTODOC common 		use enryption key to encrypt and decrypt data
 # AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC common 		usage of encryption will add extra dependency: gpg
+# AUTODOC common 		usage of encryption will add extra dependency: openssl
 # AUTODOC common 
 # AUTODOC common 	-r|--read-enryption
 # AUTODOC common 		read enryption key from stdin
 # AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC common 		usage of encryption will add extra dependency: gpg
+# AUTODOC common 		usage of encryption will add extra dependency: openssl
 # AUTODOC common 
 # AUTODOC common 	-d|--debug
 # AUTODOC common 		use debug
@@ -504,7 +512,7 @@ function run_get {
 				return 1
 			fi
 
-			printf '%s' "$(line2value "$line")" | base64 --decode | gpg -d --passphrase "$SSDB_ENCRYPTION_KEY" 2>/dev/null
+			printf '%s' "$(line2value "$line")" | base64 --decode | _decrypt "$SSDB_ENCRYPTION_KEY"
 			return 0;;
 		none)
 			printf ''
