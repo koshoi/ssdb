@@ -31,7 +31,7 @@ function _echo {
 
 function _base64 {
 	case "$OS" in
-		Dawrin)
+		Darwin)
 			base64;;
 		*)
 			base64 -w 0;;
@@ -41,7 +41,7 @@ function _base64 {
 
 function _sed {
 	case "$OS" in
-		Dawrin)
+		Darwin)
 			local sed_args=()
 			local inplace=''
 			while [[ $# -gt 0 ]]; do
