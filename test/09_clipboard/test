@@ -1,0 +1,36 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'clipboard'
+
+OS=$(uname -s)
+
+function set_clip {
+	case "$OS" in
+		Darwin)
+			printf '%s\n' "$1" | pbcopy;;
+		*)
+			printf '%s\n' "$1" | xsel -i --clipboard;;
+	esac
+}
+
+function get_clip {
+	case "$OS" in
+		Darwin)
+			pbpaste;;
+		*)
+			xsel -o --clipboard;;
+	esac
+}
+
+set_clip 'v1'
+
+testres 'paste_from_clip'         'OK' "$ssdb" paste k1
+testres 'check_pasted'            'v1' "$ssdb" g     k1
+testres 'set_new_value'           'OK' "$ssdb" s     k2 v2
+testres 'copy_to_clip'            'OK' "$ssdb" copy  k2
+equals  'clipboard_is_set'        'v2' "$(get_clip)"

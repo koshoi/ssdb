@@ -72,7 +72,7 @@ function testok {
 }
 
 function testfail {
-	tname="$1"
+	local tname="$1"
 	shift
 	local result
 	if result=$("$@"); then
@@ -82,6 +82,19 @@ function testfail {
 		maybe_bail
 	else
 		printf '\tOk: %s:%s\n' "$TEST_NAME" "$tname"
+	fi
+}
+
+function equals {
+	local tname="$1"
+	local v1="$2"
+	local v2="$3"
+
+	if [ "$v1" != "$v2" ]; then
+		printf "\tFailed: %s:%s\n" "$TEST_NAME" "$tname"
+		printf "\t\tGot: '%s'\n" "$v2"
+		printf "\t\tExpected %s\n" "$v1"
+		maybe_bail
 	fi
 }
 

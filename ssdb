@@ -37,7 +37,6 @@ function _base64 {
 		*)
 			base64 -w 0;;
 	esac
-	# base64 -w 0
 }
 
 function _sed {
@@ -121,6 +120,24 @@ function error {
 	fi
 
 	exit 127
+}
+
+function get_from_clip {
+	case "$OS" in
+		Darwin)
+			pbpaste;;
+		*)
+			xsel -o --clipboard;;
+	esac
+}
+
+function set_to_clip {
+	case "$OS" in
+		Darwin)
+			_echo "$1" | pbcopy;;
+		*)
+			_echo "$1" | xsel -i --clipboard;;
+	esac
 }
 
 function format_value {
@@ -413,54 +430,11 @@ function _set_key {
 	return 0
 }
 
-# AUTODOC common 
-# AUTODOC set ssdb set KEY VALUE
-# AUTODOC set ssdb s   KEY VALUE
-# AUTODOC set 	it sets a KEY to a VALUE
-# AUTODOC set 	if the KEY was already present it overrides it
-function run_set {
-	lock GLOBAL
-	debug "run_set $1 '$2'"
+function _list_keys {
+	local snap
+	snap=$(snap_name)
 
-	local result
-	if result="$(_set_key "$1" "$2")"; then
-		debug "added"
-	else
-		local EXIT=$?
-		debug "failed to set key, $result"
-		unlock GLOBAL
-		printf "%s" "$result"
-		return $EXIT
-	fi
-
-	unlock GLOBAL
-	printf 'OK'
-	return 0
-}
-
-# AUTODOC common 
-# AUTODOC add ssdb add KEY VALUE
-# AUTODOC add ssdb a   KEY VALUE
-# AUTODOC add 	it add a new KEY to a VALUE
-# AUTODOC add 	if the KEY was already present it exits with error
-function run_add {
-	lock GLOBAL
-	debug "run_set $1 '$2'"
-
-	local result
-	if result="$(_set_key "$1" "$2" noreplace)"; then
-		debug "added"
-	else
-		local EXIT=$?
-		debug "failed to set key, $result"
-		unlock GLOBAL
-		printf "%s" "$result"
-		return $EXIT
-	fi
-
-	unlock GLOBAL
-	printf 'OK'
-	return 0
+	sed 's/ .*//' "$snap"
 }
 
 function _delete_key {
@@ -475,31 +449,6 @@ function _delete_key {
 	fi
 
 	return 1
-}
-
-# AUTODOC common 
-# AUTODOC delete ssdb delete KEY
-# AUTODOC delete ssdb del    KEY
-# AUTODOC delete ssdb d      KEY
-# AUTODOC delete 	it deletes a KEY from ssdb
-# AUTODOC delete 	if the KEY was not found it exits with error
-function run_del {
-	lock GLOBAL
-
-	debug "run_del $1"
-	if _delete_key "$1"; then
-		debug "Found"
-	else
-		local EXIT=$?
-		debug "Not found"
-		unlock GLOBAL
-		return $EXIT
-	fi
-
-	unlock GLOBAL
-
-	printf 'OK'
-	return 0
 }
 
 # returns full line containing key or line count with key
@@ -526,6 +475,85 @@ function _get_line_with_key {
 	done < "$snap"
 	return 1
 }
+
+
+# AUTODOC common 
+# AUTODOC set ssdb set KEY VALUE
+# AUTODOC set ssdb s   KEY VALUE
+# AUTODOC set 	it sets a KEY to a VALUE
+# AUTODOC set 	if the KEY was already present it overrides it
+function run_set {
+	lock GLOBAL
+	debug "run_set $1 '$2'"
+
+	local result
+	if result="$(_set_key "$1" "$2")"; then
+		debug "added"
+	else
+		local EXIT=$?
+		debug "failed to set key, $result"
+		unlock GLOBAL
+		printf "%s" "$result"
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+	printf 'OK'
+	return 0
+}
+
+
+# AUTODOC common 
+# AUTODOC add ssdb add KEY VALUE
+# AUTODOC add ssdb a   KEY VALUE
+# AUTODOC add 	it add a new KEY to a VALUE
+# AUTODOC add 	if the KEY was already present it exits with error
+function run_add {
+	lock GLOBAL
+	debug "run_set $1 '$2'"
+
+	local result
+	if result="$(_set_key "$1" "$2" noreplace)"; then
+		debug "added"
+	else
+		local EXIT=$?
+		debug "failed to set key, $result"
+		unlock GLOBAL
+		printf "%s" "$result"
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+	printf 'OK'
+	return 0
+}
+
+
+# AUTODOC common 
+# AUTODOC delete ssdb delete KEY
+# AUTODOC delete ssdb del    KEY
+# AUTODOC delete ssdb d      KEY
+# AUTODOC delete 	it deletes a KEY from ssdb
+# AUTODOC delete 	if the KEY was not found it exits with error
+function run_del {
+	lock GLOBAL
+
+	debug "run_del $1"
+	if _delete_key "$1"; then
+		debug "Found"
+	else
+		local EXIT=$?
+		debug "Not found"
+		unlock GLOBAL
+		return $EXIT
+	fi
+
+	unlock GLOBAL
+
+	printf 'OK'
+	return 0
+}
+
 
 # AUTODOC common 
 # AUTODOC get ssdb get KEY
@@ -573,6 +601,7 @@ function run_get {
 	esac
 }
 
+
 # AUTODOC common 
 # AUTODOC check ssdb check KEY
 # AUTODOC check ssdb c   KEY
@@ -594,12 +623,6 @@ function run_check {
 	fi
 }
 
-function _list_keys {
-	local snap
-	snap=$(snap_name)
-
-	sed 's/ .*//' "$snap"
-}
 
 # AUTODOC common 
 # AUTODOC list ssdb list
@@ -636,6 +659,7 @@ function run_snap {
 	unlock GLOBAL
 }
 
+
 # AUTODOC common 
 # AUTODOC bindump ssdb bindump
 # AUTODOC bindump 	returns binary dumped snapshot (for debug puposes)
@@ -650,6 +674,7 @@ function run_bindump {
 	unlock GLOBAL
 }
 
+
 # AUTODOC common 
 # AUTODOC truncate ssdb truncate
 # AUTODOC truncate 	deletes everything from ssdb
@@ -661,6 +686,30 @@ function run_truncate {
 	snap=$(snap_name)
 	printf '' > "$snap"
 	unlock GLOBAL
+}
+
+# AUTODOC common 
+# AUTODOC copy ssdb copy KEY
+# AUTODOC copy ssdb cp KEY
+# AUTODOC copy 	it copies value of KEY to your clipboard
+function run_copy {
+	debug "run_copy $1"
+	local value
+	value="$(run_get "$1")"
+	set_to_clip "$value"
+	printf 'OK'
+	return 0
+}
+
+# AUTODOC common 
+# AUTODOC paste ssdb paste KEY
+# AUTODOC paste ssdb p KEY
+# AUTODOC paste 	it sets KEY as content of your clipboard
+function run_paste {
+	debug "run_paste $1"
+	local value
+	value="$(get_from_clip)"
+	run_set "$1" "$value"
 }
 
 # AUTODOC common 
@@ -734,7 +783,7 @@ fi
 GIVEN_COMMAND="${1:-}"
 
 case "$GIVEN_COMMAND" in
-	a|add|d|del|delete|g|get|c|check|s|set)
+	a|add|d|del|delete|g|get|c|check|s|set|cp|copy|p|paste)
 		KEY="${2:-}"
 		if [ -z "$KEY" ]; then
 			error "KEY can't be empty"
@@ -765,6 +814,14 @@ case "$GIVEN_COMMAND" in
 				;;
 			c|check)
 				COMMAND="check"
+				shift 2
+				;;
+			cp|copy)
+				COMMAND="copy"
+				shift 2
+				;;
+			p|paste)
+				COMMAND="paste"
 				shift 2
 				;;
 		esac;;
@@ -830,6 +887,10 @@ case "$COMMAND" in
 		run_bindump;;
 	truncate)
 		run_truncate;;
+	copy)
+		run_copy "$KEY";;
+	paste)
+		run_paste "$KEY";;
 	help)
 		print_help "$KEY";;
 	depcheck)
