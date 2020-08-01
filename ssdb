@@ -9,6 +9,7 @@ SSDB_SNAPDIR="${SSDB_SNAPDIR:-$HOME/.ssdb}"
 SSDB_DATABASE="${SSDB_DATABASE:-default}"
 SSDB_ENCRYPTION_KEY="${SSDB_ENCRYPTION_KEY:-}"
 SSDB_CHECK_DEPENDENCIES="${SSDB_CHECK_DEPENDENCIES:-1}"
+SSDB_META=''
 DEBUG_INFO="$(printf '[%6d:%s]' "$$" "$USER")"
 LOCK_SLEEP_PERIOD=0.1
 LOCK_MAX_ATTEMPT=100
@@ -136,14 +137,12 @@ function format_value {
 		return 0
 	fi
 
-	if _echo "$value" | grep -q '\s'; then
+	if _has_char "$value" '\s'; then
 		printf 'format=b64 %s' "$(printf '%s' "$value" | _base64)"
 		return 0
 	fi
 
-	local printable
-	printable=$(_echo "$value" | strings -n 1)
-	if [ "$printable" == "$value" ]; then
+	if ! _is_binary "$value"; then
 		printf 'format=raw %s' "$value"
 		return 0
 	fi
@@ -169,7 +168,7 @@ function meta2tag {
 	local metalist
 	metalist=($(split ',' "$meta"))
 	for tagline in "${metalist[@]}"; do
-		local tag="${tagline%=*}"
+		local tag="${tagline%%=*}"
 		local tagvalue="${tagline#*=}"
 		if [ "$metatag" == "$tag" ]; then
 			printf '%s' "$tagvalue"
@@ -205,6 +204,58 @@ function line2value {
 	local l="$1"
 	local larr=($l)
 	_echo "${larr[$VALUE_POSITION]}"
+}
+
+function _has_char {
+	local str="$1"
+	local char="$2"
+	_echo "$str" | grep -q "$char"
+}
+
+function _is_binary {
+	local str="$1"
+
+	local printable
+	printable=$(_echo "$str" | strings -n 1)
+	if [ "$printable" == "$str" ]; then
+		return 1
+	fi
+
+	return 0
+}
+
+function _validate_meta {
+	local meta="$1"
+
+	local metalist
+	metalist=($(split ',' "$meta"))
+
+	for metaline in "${metalist[@]}"; do
+		local delim="${metaline//[^=]}"
+
+		if [ "${#delim}" -ne 1 ]; then
+			error "metaline='$metaline' is invalid: amount of '=' characters must be exactly 1"
+		fi
+
+		local tag="${metaline%%=*}"
+		local tagvalue="${metaline#*=}"
+	done
+}
+
+function _is_valid_key {
+	local key="$1"
+
+	if _has_char "$key" '\s'; then
+		_echo "key='$key' bs=${#key} has whitespaces"
+		exit 127
+	fi
+
+	if _is_binary "$key"; then
+		_echo "key='$key' bs=${#key} has forbidden characters"
+		exit 127
+	fi
+
+	return 0
 }
 
 # PREAMBLE Welcome to
@@ -643,20 +694,17 @@ while [[ $# -gt 0 ]]; do
 		-D|--database|--db)
 			SSDB_DATABASE="${2:-}"
 			[ -z "$SSDB_DATABASE" ] && error "$option param can not be empty"
-			shift
-			shift
+			shift 2
 			;;
 		-S|--snapdir)
 			SSDB_SNAPDIR="$2"
 			[ -z "$SSDB_SNAPDIR" ] && error "$option param can not be empty"
-			shift
-			shift
+			shift 2
 			;;
 		-e|--encryption)
 			SSDB_ENCRYPTION_KEY="$2"
 			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
-			shift
-			shift
+			shift 2
 			;;
 		-r|--read-encryption)
 			printf 'Enter passphrase: ' 1>&2
@@ -664,6 +712,11 @@ while [[ $# -gt 0 ]]; do
 			SSDB_ENCRYPTION_KEY="$enc_key"
 			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
 			shift
+			;;
+		-m|--meta)
+			SSDB_META="$2"
+			[ -z "$SSDB_META" ] && error "No meta was passed"
+			shift 2
 			;;
 		-d|--debug)
 			SSDB_DEBUG=1
@@ -699,23 +752,21 @@ case "$GIVEN_COMMAND" in
 					error "VALUE is undefined"
 				else
 					VALUE="$3"
-					shift
-					shift
-					shift
+					shift 3
 				fi
 				;;
 			d|del|delete)
 				COMMAND="del"
-				shift
-				shift;;
+				shift 2
+				;;
 			g|get)
 				COMMAND="get"
-				shift
-				shift;;
+				shift 2
+				;;
 			c|check)
 				COMMAND="check"
-				shift
-				shift;;
+				shift 2
+				;;
 		esac;;
 	l|list)
 		COMMAND="list"
@@ -754,6 +805,10 @@ debug "SSDB_ENCRYPTION_KEY=$SSDB_ENCRYPTION_KEY"
 
 if [[ $# -gt 0 ]]; then
 	error 'extra params left, usage ssdb [OPTIONS] COMMAND ?ARG1 ?ARG2'
+fi
+
+if [ -n "$KEY" ]; then
+	_is_valid_key "$KEY"
 fi
 
 case "$COMMAND" in

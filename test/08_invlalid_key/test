@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ssdb="${1:-}"
+
+dir=$(cd "$(dirname "$0")" && pwd)
+source "$dir/../testenv" "$dir" "$ssdb" 'forbidden_characters'
+
+binkey="$(printf '\x01key')"
+whitespaces='   '
+with_whitespaces='k e y'
+
+testfail "set:binary_key"          "$ssdb" s "$binkey" 'v'
+testfail "add:binary_key"          "$ssdb" a "$binkey" 'v'
+testfail "delete:binary_key"       "$ssdb" d "$binkey"
+testfail "check:binary_key"        "$ssdb" c "$binkey"
+testfail "get:binary_key"          "$ssdb" g "$binkey"
+
+testfail "set:whitespaces"          "$ssdb" s "$whitespaces" 'v'
+testfail "add:whitespaces"          "$ssdb" a "$whitespaces" 'v'
+testfail "delete:whitespaces"       "$ssdb" d "$whitespaces"
+testfail "check:whitespaces"        "$ssdb" c "$whitespaces"
+testfail "get:whitespaces"          "$ssdb" g "$whitespaces"
+
+testfail "set:with_whitespaces"          "$ssdb" s "$with_whitespaces" 'v'
+testfail "add:with_whitespaces"          "$ssdb" a "$with_whitespaces" 'v'
+testfail "delete:with_whitespaces"       "$ssdb" d "$with_whitespaces"
+testfail "check:with_whitespaces"        "$ssdb" c "$with_whitespaces"
+testfail "get:with_whitespaces"          "$ssdb" g "$with_whitespaces"
