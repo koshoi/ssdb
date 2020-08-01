@@ -283,8 +283,8 @@ function line2value {
 function print_help {
 	helpfor="${1:-}"
 	if [ -z "$helpfor" ]; then
-		grep '^# PREAMBLE' "$0" | _sed "s/^# PREAMBLE //g"
-		grep '^# AUTODOC' ssdb | _sed -e "s/^# AUTODOC [^ ]* //g"
+		grep '^# PREAMBLE'   "$0" | _sed -e "s/^# PREAMBLE //g"
+		grep '^# AUTODOC'    "$0" | _sed -e "s/^# AUTODOC [^ ]* //g"
 		grep '^# MILESTONES' "$0" | _sed -e "s/^# MILESTONES //g"
 	else
 		grep "^# AUTODOC $helpfor" "$0" | _sed -e "s/^# AUTODOC [^ ]* //g"
