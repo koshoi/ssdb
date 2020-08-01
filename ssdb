@@ -734,6 +734,7 @@ function check_dependencies {
 COMMAND=""
 KEY=""
 VALUE=""
+read_enc=""
 
 while [[ $# -gt 0 ]]; do
 	option="$1"
@@ -756,10 +757,7 @@ while [[ $# -gt 0 ]]; do
 			shift 2
 			;;
 		-r|--read-encryption)
-			printf 'Enter passphrase: ' 1>&2
-			read -s enc_key;
-			SSDB_ENCRYPTION_KEY="$enc_key"
-			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
+			read_enc=1
 			shift
 			;;
 		-m|--meta)
@@ -866,6 +864,13 @@ fi
 
 if [ -n "$KEY" ]; then
 	_is_valid_key "$KEY"
+fi
+
+if [ -n "$read_enc" ]; then
+	printf 'Enter passphrase: ' 1>&2
+	read -s enc_key;
+	SSDB_ENCRYPTION_KEY="$enc_key"
+	[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
 fi
 
 case "$COMMAND" in
