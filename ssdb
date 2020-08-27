@@ -20,7 +20,9 @@ VALUE_POSITION=2
 
 TAKEN_LOCKS=()
 
-COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname sed sort)
+COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname sed sort basename)
+MACOS_DEPENDENCIES=(pbcopy pbpaste)
+LINUX_DEPENDENCIES=(xsel)
 ENC_DEPENDENCIES=(openssl)
 OS=$(uname -s)
 
@@ -303,30 +305,6 @@ function _is_valid_key {
 # AUTODOC common 
 # AUTODOC common ssdb [OPTIONS] COMMAND KEY ?VALUE
 # AUTODOC common 
-# AUTODOC common configurable options are
-# AUTODOC common 
-# AUTODOC common 	-D|--database|--db 'dbname'
-# AUTODOC common 		use given database instead of default one ('default')
-# AUTODOC common 		can also be configured with SSDB_DATABASE env option
-# AUTODOC common 
-# AUTODOC common 	-S|--snapdir 'snapdir'
-# AUTODOC common 		use given snapshot_directory instead of default one ($HOME/.ssdb)
-# AUTODOC common 		can also be configured with SSDB_SNAPDIR env option
-# AUTODOC common 
-# AUTODOC common 	-e|--encryption 'enckey'
-# AUTODOC common 		use enryption key to encrypt and decrypt data
-# AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC common 		usage of encryption will add extra dependency: openssl
-# AUTODOC common 
-# AUTODOC common 	-r|--read-enryption
-# AUTODOC common 		read enryption key from stdin
-# AUTODOC common 		can also be configured with SSDB_ENCRYPTION_KEY env option
-# AUTODOC common 		usage of encryption will add extra dependency: openssl
-# AUTODOC common 
-# AUTODOC common 	-d|--debug
-# AUTODOC common 		use debug
-# AUTODOC common 		can also be configured with SSDB_DEBUG env option
-# AUTODOC common 
 # AUTODOC common almost every command has a shorter version for comfortable usage in console
 # AUTODOC common 
 # AUTODOC common As for now KEY can't contain any whitespaces, special characters and binary shit
@@ -337,6 +315,8 @@ function _is_valid_key {
 # AUTODOC common 
 # AUTODOC common 
 # AUTODOC help ssdb help [COMMAND]
+# AUTODOC help ssdb --help [COMMAND]
+# AUTODOC help ssdb -h [COMMAND]
 # AUTODOC help ssdb h
 # AUTODOC help 	prints this help
 # AUTODOC help 	if COMMAND is given, it prints only help for specific COMMAND
@@ -351,11 +331,11 @@ function _is_valid_key {
 function print_help {
 	helpfor="${1:-}"
 	if [ -z "$helpfor" ]; then
-		grep '^# PREAMBLE'   "$0" | _sed -e "s/^# PREAMBLE //g"
-		grep '^# AUTODOC'    "$0" | _sed -e "s/^# AUTODOC [^ ]* //g"
-		grep '^# MILESTONES' "$0" | _sed -e "s/^# MILESTONES //g"
+		grep '^\s*# PREAMBLE'   "$0" | _sed -e "s/^\s*# PREAMBLE //g"
+		grep '^\s*# AUTODOC'    "$0" | _sed -e "s/^\s*# AUTODOC [^ ]* //g"
+		grep '^\s*# MILESTONES' "$0" | _sed -e "s/^\s*# MILESTONES //g"
 	else
-		grep "^# AUTODOC $helpfor" "$0" | _sed -e "s/^# AUTODOC [^ ]* //g"
+		grep "^\s*# AUTODOC $helpfor" "$0" | _sed -e "s/^\s*# AUTODOC [^ ]* //g"
 	fi
 }
 
@@ -474,6 +454,42 @@ function _get_line_with_key {
 		fi
 	done < "$snap"
 	return 1
+}
+
+# AUTODOC common 
+# AUTODOC list-databases ssdb list-databases
+# AUTODOC list-databases ssdb ldb
+# AUTODOC list-databases ssdb ld
+# AUTODOC list-databases 	returns list of current available databases
+function run_list_databases {
+	lock GLOBAL
+
+	debug "run_list_databases"
+	for f in $SSDB_SNAPDIR/snap.* ; do
+		local b
+		b=$(basename "$f")
+		_echo "${b#snap.}"
+	done
+	unlock GLOBAL
+	return 0
+}
+
+# AUTODOC common 
+# AUTODOC drop ssdb drop-database ?DATABASE
+# AUTODOC drop ssdb drop          ?DATABASE
+# AUTODOC drop ssdb rm            ?DATABASE
+# AUTODOC drop 	removes given database
+function run_drop_database {
+	lock GLOBAL
+	debug "run_drop_database"
+
+	local snap
+	snap=$(snap_name)
+	debug "removing $snap"
+	rm "$snap"
+	unlock GLOBAL
+	_echo "DROPPED"
+	return 0
 }
 
 
@@ -625,8 +641,9 @@ function run_check {
 
 
 # AUTODOC common 
-# AUTODOC list ssdb list
-# AUTODOC list ssdb l
+# AUTODOC list ssdb list ?DATABASE
+# AUTODOC list ssdb ls   ?DATABASE
+# AUTODOC list ssdb l    ?DATABASE
 # AUTODOC list 	returns sorted list of keys in ssdb
 function run_list {
 	lock GLOBAL
@@ -647,7 +664,7 @@ function run_list {
 
 
 # AUTODOC common 
-# AUTODOC snap ssdb snap
+# AUTODOC snap ssdb snap ?DATABASE
 # AUTODOC snap 	returns snapshot as is (can be used for backup needs)
 function run_snap {
 	lock GLOBAL
@@ -661,7 +678,7 @@ function run_snap {
 
 
 # AUTODOC common 
-# AUTODOC bindump ssdb bindump
+# AUTODOC bindump ssdb bindump ?DATABASE
 # AUTODOC bindump 	returns binary dumped snapshot (for debug puposes)
 function run_bindump {
 	lock GLOBAL
@@ -676,8 +693,8 @@ function run_bindump {
 
 
 # AUTODOC common 
-# AUTODOC truncate ssdb truncate
-# AUTODOC truncate 	deletes everything from ssdb
+# AUTODOC truncate ssdb truncate ?DATABASE
+# AUTODOC truncate 	deletes every key from ssdb database
 function run_truncate {
 	lock GLOBAL
 
@@ -722,6 +739,22 @@ function check_dependencies {
 		fi
 	done
 
+	case "$OS" in
+		Darwin)
+			for dep in "${MACOS_DEPENDENCIES[@]}"; do
+				if ! type "$dep" 1>/dev/null 2>/dev/null; then
+					error "Unmet macos dependency: $dep"
+				fi
+			done;;
+		*)
+			for dep in "${LINUX_DEPENDENCIES[@]}"; do
+				if ! type "$dep" 1>/dev/null 2>/dev/null; then
+					error "Unmet linux dependency: $dep"
+				fi
+			done;;
+	esac
+
+
 	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
 		for dep in "${ENC_DEPENDENCIES[@]}"; do
 			if ! type "$dep" 1>/dev/null 2>/dev/null; then
@@ -736,35 +769,65 @@ KEY=""
 VALUE=""
 read_enc=""
 
+# AUTODOC common 
+# AUTODOC common configurable options are
+# AUTODOC common 
 while [[ $# -gt 0 ]]; do
 	option="$1"
 	debug "parsing $option"
 
 	case $option in
+		# AUTODOC flags 	-D|--database|--db 'dbname'
+		# AUTODOC flags 		use given database instead of default one ('default')
+		# AUTODOC flags 		can also be configured with SSDB_DATABASE env option
+		# AUTODOC flags 
 		-D|--database|--db)
 			SSDB_DATABASE="${2:-}"
 			[ -z "$SSDB_DATABASE" ] && error "$option param can not be empty"
 			shift 2
 			;;
+
+		# AUTODOC flags 	-S|--snapdir 'snapdir'
+		# AUTODOC flags 		use given snapshot_directory instead of default one ($HOME/.ssdb)
+		# AUTODOC flags 		can also be configured with SSDB_SNAPDIR env option
+		# AUTODOC flags 
 		-S|--snapdir)
 			SSDB_SNAPDIR="$2"
 			[ -z "$SSDB_SNAPDIR" ] && error "$option param can not be empty"
 			shift 2
 			;;
+
+		# AUTODOC flags 	-e|--encryption 'enckey'
+		# AUTODOC flags 		use enryption key to encrypt and decrypt data
+		# AUTODOC flags 		can also be configured with SSDB_ENCRYPTION_KEY env option
+		# AUTODOC flags 		usage of encryption will add extra dependency: openssl
+		# AUTODOC flags 
 		-e|--encryption)
 			SSDB_ENCRYPTION_KEY="$2"
 			[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
 			shift 2
 			;;
+
+		# AUTODOC flags 	-r|--read-enryption
+		# AUTODOC flags 		read enryption key from stdin
+		# AUTODOC flags 		can also be configured with SSDB_ENCRYPTION_KEY env option
+		# AUTODOC flags 		usage of encryption will add extra dependency: openssl
+		# AUTODOC flags 
 		-r|--read-encryption)
 			read_enc=1
 			shift
 			;;
+
 		-m|--meta)
 			SSDB_META="$2"
 			[ -z "$SSDB_META" ] && error "No meta was passed"
 			shift 2
 			;;
+
+		# AUTODOC flags 	-d|--debug
+		# AUTODOC flags 		use debug
+		# AUTODOC flags 		can also be configured with SSDB_DEBUG env option
+		# AUTODOC flags 
 		-d|--debug)
 			SSDB_DEBUG=1
 			shift
@@ -822,23 +885,39 @@ case "$GIVEN_COMMAND" in
 				COMMAND="paste"
 				shift 2
 				;;
+			rm|drop|drop-database)
+				COMMAND="drop-database"
+				shift 2
+				;;
 		esac;;
-	l|list)
-		COMMAND="list"
+	l|ls|list|rm|drop|drop-database|snap|bindump|truncate)
+		KEY="${2:-}"
+		if [ -n "$KEY" ]; then
+			debug "setting SSDB_DATABASE='$KEY'"
+			SSDB_DATABASE="$KEY"
+			shift
+		fi
+
+		case "$GIVEN_COMMAND" in
+			l|ls|list)
+				COMMAND="list";;
+			rm|drop|drop-database)
+				COMMAND="drop-database";;
+			snap)
+				COMMAND="snap";;
+			bindump)
+				COMMAND="bindump";;
+			truncate)
+				COMMAND="truncate";;
+		esac
 		shift;;
-	snap)
-		COMMAND="snap"
-		shift;;
-	bindump)
-		COMMAND="bindump"
-		shift;;
-	truncate)
-		COMMAND="truncate"
+	list-databases|ldb|ld)
+		COMMAND="list-databases"
 		shift;;
 	dep|depcheck)
 		COMMAND="depcheck"
 		shift;;
-	h|help)
+	h|help|-h|--help)
 		COMMAND="help"
 		shift
 		if [[ $# -eq 1 ]]; then
@@ -900,6 +979,10 @@ case "$COMMAND" in
 		print_help "$KEY";;
 	depcheck)
 		check_dependencies;;
+	list-databases)
+		run_list_databases;;
+	drop-database)
+		run_drop_database;;
 	*)
 		error "'$COMMAND' command is parsed but not implemented yet";;
 esac
