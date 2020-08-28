@@ -477,7 +477,6 @@ function run_list_databases {
 # AUTODOC common 
 # AUTODOC drop ssdb drop-database ?DATABASE
 # AUTODOC drop ssdb drop          ?DATABASE
-# AUTODOC drop ssdb rm            ?DATABASE
 # AUTODOC drop 	removes given database
 function run_drop_database {
 	lock GLOBAL
@@ -885,12 +884,12 @@ case "$GIVEN_COMMAND" in
 				COMMAND="paste"
 				shift 2
 				;;
-			rm|drop|drop-database)
+			drop|drop-database)
 				COMMAND="drop-database"
 				shift 2
 				;;
 		esac;;
-	l|ls|list|rm|drop|drop-database|snap|bindump|truncate)
+	l|ls|list|drop|drop-database|snap|bindump|truncate)
 		KEY="${2:-}"
 		if [ -n "$KEY" ]; then
 			debug "setting SSDB_DATABASE='$KEY'"
@@ -901,7 +900,7 @@ case "$GIVEN_COMMAND" in
 		case "$GIVEN_COMMAND" in
 			l|ls|list)
 				COMMAND="list";;
-			rm|drop|drop-database)
+			drop|drop-database)
 				COMMAND="drop-database";;
 			snap)
 				COMMAND="snap";;
