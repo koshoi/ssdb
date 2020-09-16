@@ -21,8 +21,8 @@ VALUE_POSITION=2
 TAKEN_LOCKS=()
 
 COMMON_DEPENDENCIES=(base64 cat sed printf mkdir sleep hexdump strings uname sed sort basename)
-MACOS_DEPENDENCIES=(pbcopy pbpaste)
-LINUX_DEPENDENCIES=(xsel)
+CLIP_MACOS_DEPENDENCIES=(pbcopy pbpaste)
+CLIP_LINUX_DEPENDENCIES=(xsel)
 ENC_DEPENDENCIES=(openssl)
 OS=$(uname -s)
 
@@ -464,8 +464,9 @@ function _get_line_with_key {
 function run_list_databases {
 	lock GLOBAL
 
-	debug "run_list_databases"
+	debug "run_list_databases in $SSDB_SNAPDIR"
 	for f in $SSDB_SNAPDIR/snap.* ; do
+		debug "Found snap file $f"
 		local b
 		b=$(basename "$f")
 		_echo "${b#snap.}"
@@ -513,7 +514,7 @@ function run_set {
 	fi
 
 	unlock GLOBAL
-	printf 'OK'
+	printf 'OK\n'
 	return 0
 }
 
@@ -539,7 +540,7 @@ function run_add {
 	fi
 
 	unlock GLOBAL
-	printf 'OK'
+	printf 'OK\n'
 	return 0
 }
 
@@ -565,7 +566,7 @@ function run_del {
 
 	unlock GLOBAL
 
-	printf 'OK'
+	printf 'OK\n'
 	return 0
 }
 
@@ -713,7 +714,7 @@ function run_copy {
 	local value
 	value="$(run_get "$1")"
 	set_to_clip "$value"
-	printf 'OK'
+	printf 'OK\n'
 	return 0
 }
 
@@ -732,25 +733,30 @@ function run_paste {
 # AUTODOC depcheck ssdb dep|depcheck
 # AUTODOC depcheck 	checks external dependecies
 function check_dependencies {
+	local command="$1"
 	for dep in "${COMMON_DEPENDENCIES[@]}"; do
 		if ! type "$dep" 1>/dev/null 2>/dev/null; then
 			error "Unmet dependency: $dep"
 		fi
 	done
 
-	case "$OS" in
-		Darwin)
-			for dep in "${MACOS_DEPENDENCIES[@]}"; do
-				if ! type "$dep" 1>/dev/null 2>/dev/null; then
-					error "Unmet macos dependency: $dep"
-				fi
-			done;;
-		*)
-			for dep in "${LINUX_DEPENDENCIES[@]}"; do
-				if ! type "$dep" 1>/dev/null 2>/dev/null; then
-					error "Unmet linux dependency: $dep"
-				fi
-			done;;
+	case "$command" in
+		copy|paste|depcheck)
+			debug "Checking clipboard dependecies for command='$command'"
+			case "$OS" in
+				Darwin)
+					for dep in "${CLIP_MACOS_DEPENDENCIES[@]}"; do
+						if ! type "$dep" 1>/dev/null 2>/dev/null; then
+							error "Unmet macos dependency: $dep"
+						fi
+					done;;
+				*)
+					for dep in "${CLIP_LINUX_DEPENDENCIES[@]}"; do
+						if ! type "$dep" 1>/dev/null 2>/dev/null; then
+							error "Unmet linux dependency: $dep"
+						fi
+					done;;
+			esac;;
 	esac
 
 
@@ -835,10 +841,6 @@ while [[ $# -gt 0 ]]; do
 			break;;
 	esac
 done
-
-if [ "$SSDB_CHECK_DEPENDENCIES" -ne 0 ]; then
-	check_dependencies
-fi
 
 GIVEN_COMMAND="${1:-}"
 
@@ -932,6 +934,10 @@ case "$GIVEN_COMMAND" in
 		error "'$GIVEN_COMMAND' command is unknown, consider running 'ssdb help'";;
 esac
 
+if [ "$SSDB_CHECK_DEPENDENCIES" -ne 0 ]; then
+	check_dependencies "$COMMAND"
+fi
+
 debug "COMMAND=$COMMAND KEY=$KEY VALUE=$VALUE"
 debug "SSDB_SNAPDIR=$SSDB_SNAPDIR"
 debug "SSDB_ENCRYPTION_KEY=$SSDB_ENCRYPTION_KEY"
@@ -977,7 +983,7 @@ case "$COMMAND" in
 	help)
 		print_help "$KEY";;
 	depcheck)
-		check_dependencies;;
+		check_dependencies "$COMMAND";;
 	list-databases)
 		run_list_databases;;
 	drop-database)
