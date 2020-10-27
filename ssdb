@@ -279,12 +279,15 @@ function _is_valid_key {
 
 # PREAMBLE Welcome to
 # PREAMBLE 
-# PREAMBLE    __________ ____  ____
-# PREAMBLE   / ___/ ___// __ \/ __ )
-# PREAMBLE   \__ \\__ \/ / / / __  |
-# PREAMBLE  ___/ /__/ / /_/ / /_/ /
-# PREAMBLE /____/____/_____/_____/
-# PREAMBLE 
+# PREAMBLE   ______    ______   _______   _______  
+# PREAMBLE  /      \  /      \ /       \ /       \ 
+# PREAMBLE /$$$$$$  |/$$$$$$  |$$$$$$$  |$$$$$$$  |
+# PREAMBLE $$ \__$$/ $$ \__$$/ $$ |  $$ |$$ |__$$ |
+# PREAMBLE $$      \ $$      \ $$ |  $$ |$$    $$< 
+# PREAMBLE  $$$$$$  | $$$$$$  |$$ |  $$ |$$$$$$$  |
+# PREAMBLE /  \__$$ |/  \__$$ |$$ |__$$ |$$ |__$$ |
+# PREAMBLE $$    $$/ $$    $$/ $$    $$/ $$    $$/ 
+# PREAMBLE  $$$$$$/   $$$$$$/  $$$$$$$/  $$$$$$$/  
 # PREAMBLE 
 # PREAMBLE SSDB stands for Supremely Stupid DataBase
 # PREAMBLE The main concept of this 'DataBase' is
@@ -299,7 +302,7 @@ function _is_valid_key {
 # PREAMBLE It does not have a server, but it has a client (you are reading help for it at the moment)
 # PREAMBLE 
 # PREAMBLE Client's are kinda following gentelmens agreement on
-# PREAMBLE 'How we, gentelmen, should write to this file called snapshot so it keeps being adequate'
+# PREAMBLE 'How we, gentelmen, should write to this file called snapshot so it keeps being adequate
 # PREAMBLE 
 # PREAMBLE The syntax is simple
 # AUTODOC common 
