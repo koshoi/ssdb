@@ -89,8 +89,8 @@ function _decrypt {
 function _log_prefix {
 	local level="$1"
 	local _caller
-	_caller="$(caller 2)"
-	_caller=($_caller)
+	_c="$(caller 2)"
+	read -ra _caller <<< "$_c"
 	printf '[%s:%s:%s]\t' "$level" "${_caller[0]}" "${_caller[1]}"
 	# printf '%s\t[%s:%s:%s]\t' "$(date '+%Y-%m-%dT%H:%M:%S')" "$level" "${_caller[0]}" "${_caller[1]}"
 }
@@ -136,15 +136,15 @@ function get_from_clip {
 function set_to_clip {
 	case "$OS" in
 		Darwin)
-			_echo "$1" | pbcopy;;
+			printf '%s' "$1" | pbcopy;;
 		*)
-			_echo "$1" | xsel -i --clipboard;;
+			printf '%s' "$1" | xsel -i --clipboard;;
 	esac
 }
 
 function format_value {
 	local value="$1"
-	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
+	if [ -n "$SSDB_ENCRYPTION_KEY" ]; then
 		local encrypted
 		encrypted=$(printf '%s' "$value" | _encrypt "$SSDB_ENCRYPTION_KEY" | _base64)
 		printf 'format=enc %s' "$encrypted"
@@ -395,7 +395,7 @@ function _set_key {
 
 	local linecnt
 	if linecnt=$(_get_line_with_key "$key" 1); then
-		if [ ! -z "$noreplace" ]; then
+		if [ -n "$noreplace" ]; then
 			debug "noreplace is set, can't update key value"
 			printf "KEY_ALREADY_SET"
 			return 1
@@ -468,7 +468,7 @@ function run_list_databases {
 	lock GLOBAL
 
 	debug "run_list_databases in $SSDB_SNAPDIR"
-	for f in $SSDB_SNAPDIR/snap.* ; do
+	for f in "$SSDB_SNAPDIR"/snap.* ; do
 		debug "Found snap file $f"
 		local b
 		b=$(basename "$f")
@@ -732,6 +732,15 @@ function run_paste {
 	run_set "$1" "$value"
 }
 
+# -AUTODOC common 
+# -AUTODOC rename ssdb rename KEY1 KEY2
+# -AUTODOC rename ssdb r KEY1 KEY2
+# -AUTODOC rename 	renames KEY1 to KEY2
+function run_rename {
+	debug "run_rename $1"
+	error "not implemented"
+}
+
 # AUTODOC common 
 # AUTODOC depcheck ssdb dep|depcheck
 # AUTODOC depcheck 	checks external dependecies
@@ -763,7 +772,7 @@ function check_dependencies {
 	esac
 
 
-	if [ ! -z "$SSDB_ENCRYPTION_KEY" ]; then
+	if [ -n "$SSDB_ENCRYPTION_KEY" ]; then
 		for dep in "${ENC_DEPENDENCIES[@]}"; do
 			if ! type "$dep" 1>/dev/null 2>/dev/null; then
 				error "Unmet dependency: $dep"
@@ -955,7 +964,7 @@ fi
 
 if [ -n "$read_enc" ]; then
 	printf 'Enter passphrase: ' 1>&2
-	read -s enc_key;
+	read -rs enc_key;
 	SSDB_ENCRYPTION_KEY="$enc_key"
 	[ -z "$SSDB_ENCRYPTION_KEY" ] && error "$option param can not be empty"
 fi

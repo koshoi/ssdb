@@ -3,6 +3,7 @@
 set -euo pipefail
 
 export SSDB_DEBUG=
+export SSDB_DATABASE=
 export BAIL_ON_FAIL=
 
 export SSDB_SNAPDIR="$1"
